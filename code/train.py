@@ -93,6 +93,15 @@ parser.add_argument('--l2-norm', default = 1, type = int,
 parser.add_argument('--remark', default = '',
     help = 'Any reamrk'
 )
+parser.add_argument('--uncertainty-weight', default = 0.1, type = float,
+    help = 'Uncertainty regularization weight for Bayesian Proxy Anchor'
+)
+parser.add_argument('--min-uncertainty', default = 1e-6, type = float,
+    help = 'Minimum uncertainty value for Bayesian Proxy Anchor'
+)
+parser.add_argument('--max-uncertainty', default = 1.0, type = float,
+    help = 'Maximum uncertainty value for Bayesian Proxy Anchor'
+)
 
 args = parser.parse_args()
 
@@ -145,7 +154,7 @@ else:
         shuffle = True,
         num_workers = args.nb_workers,
         drop_last = True,
-        pin_memory = True
+        pin_memory = False  # Disable pin_memory to avoid threading issues
     )
     print('Random Sampling')
 
@@ -164,7 +173,7 @@ if args.dataset != 'Inshop':
         batch_size = args.sz_batch,
         shuffle = False,
         num_workers = args.nb_workers,
-        pin_memory = True
+        pin_memory = False  # Disable pin_memory to avoid threading issues
     )
     
 else:
@@ -231,8 +240,10 @@ elif args.loss == 'Triplet':
     criterion = losses.TripletLoss().cuda()
 elif args.loss == 'NPair':
     criterion = losses.NPairLoss().cuda()
-elif args.loss == 'Uncertainty_Aware':
+elif args.loss == 'Bayesian_Proxy_Anchor':
     criterion = losses.Bayesian_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha, uncertainty_weight = args.uncertainty_weight, min_uncertainty = args.min_uncertainty, max_uncertainty = args.max_uncertainty).cuda()
+else:
+    raise ValueError(f"Unsupported loss function: {args.loss}")
 
 # Train Parameters
 param_groups = [
@@ -292,13 +303,21 @@ for epoch in range(0, args.nb_epochs):
 
     for batch_idx, (x, y) in pbar:                         
         m = model(x.squeeze().cuda())
-        loss = criterion(m, y.squeeze().cuda())
+        
+        # Handle Bayesian Proxy Anchor loss which requires uncertainty
+        if args.loss == 'Bayesian_Proxy_Anchor':
+            # Generate dummy uncertainty (you can replace this with actual uncertainty estimation)
+            batch_size, embedding_size = m.shape
+            uncertainty = torch.ones_like(m) * 0.1  # Fixed uncertainty of 0.1
+            loss = criterion(m, uncertainty, y.squeeze().cuda())
+        else:
+            loss = criterion(m, y.squeeze().cuda())
         
         opt.zero_grad()
         loss.backward()
         
         torch.nn.utils.clip_grad_value_(model.parameters(), 10)
-        if args.loss == 'Proxy_Anchor':
+        if args.loss == 'Proxy_Anchor' or args.loss == 'Bayesian_Proxy_Anchor':
             torch.nn.utils.clip_grad_value_(criterion.parameters(), 10)
 
         losses_per_epoch.append(loss.data.cpu().numpy())
