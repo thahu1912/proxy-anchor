@@ -57,6 +57,113 @@ class Proxy_Anchor(torch.nn.Module):
         
         return loss
 
+class Bayesian_Proxy_Anchor(torch.nn.Module):
+    """
+    Uncertainty-aware Bayesian Proxy Anchor Loss
+    
+    This implementation extends the original Proxy Anchor loss with uncertainty estimation
+    by modeling both embeddings and proxies as Gaussian distributions with learnable variances.
+    """
+    def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, uncertainty_weight=0.1, 
+                 min_uncertainty=1e-6, max_uncertainty=1.0):
+        torch.nn.Module.__init__(self)
+        
+        # Proxy Anchor Initialization (mean)
+        self.proxies = torch.nn.Parameter(torch.randn(nb_classes, sz_embed).cuda())
+        nn.init.kaiming_normal_(self.proxies, mode='fan_out')
+        
+        # Proxy uncertainty initialization (variance)
+        self.proxy_uncertainties = torch.nn.Parameter(torch.ones(nb_classes, sz_embed).cuda() * 0.1)
+        nn.init.constant_(self.proxy_uncertainties, 0.1)
+        
+        self.nb_classes = nb_classes
+        self.sz_embed = sz_embed
+        self.mrg = mrg
+        self.alpha = alpha
+        self.uncertainty_weight = uncertainty_weight
+        self.min_uncertainty = min_uncertainty
+        self.max_uncertainty = max_uncertainty
+        
+    def forward(self, X, X_uncertainty, T):
+        """
+        Forward pass for Bayesian Proxy Anchor Loss
+        
+        Args:
+            X: Embeddings (batch_size, sz_embed)
+            X_uncertainty: Embedding uncertainties (batch_size, sz_embed)
+            T: Labels (batch_size,)
+        """
+        P = self.proxies
+        P_uncertainty = torch.clamp(self.proxy_uncertainties, 
+                                   min=self.min_uncertainty, 
+                                   max=self.max_uncertainty)
+        
+        # Normalize embeddings and proxies
+        X_norm = l2_norm(X)
+        P_norm = l2_norm(P)
+        
+        # Calculate cosine similarity
+        cos = F.linear(X_norm, P_norm)
+        
+        # Calculate uncertainty-aware similarity
+        # Combine embedding and proxy uncertainties
+        total_uncertainty = X_uncertainty.unsqueeze(1) + P_uncertainty.unsqueeze(0)  # (batch_size, nb_classes, sz_embed)
+        
+        # Uncertainty-weighted similarity
+        uncertainty_weight = 1.0 / (1.0 + total_uncertainty.mean(dim=-1))  # (batch_size, nb_classes)
+        uncertainty_aware_cos = cos * uncertainty_weight
+        
+        # Create one-hot encodings
+        P_one_hot = binarize(T=T, nb_classes=self.nb_classes)
+        N_one_hot = 1 - P_one_hot
+        
+        # Calculate exponential terms with uncertainty adjustment
+        pos_exp = torch.exp(-self.alpha * (uncertainty_aware_cos - self.mrg))
+        neg_exp = torch.exp(self.alpha * (uncertainty_aware_cos + self.mrg))
+        
+        # Find valid proxies
+        with_pos_proxies = torch.nonzero(P_one_hot.sum(dim=0) != 0).squeeze(dim=1)
+        num_valid_proxies = len(with_pos_proxies)
+        
+        # Calculate similarity sums
+        P_sim_sum = torch.where(P_one_hot == 1, pos_exp, torch.zeros_like(pos_exp)).sum(dim=0)
+        N_sim_sum = torch.where(N_one_hot == 1, neg_exp, torch.zeros_like(neg_exp)).sum(dim=0)
+        
+        # Main loss terms
+        pos_term = torch.log(1 + P_sim_sum).sum() / num_valid_proxies
+        neg_term = torch.log(1 + N_sim_sum).sum() / self.nb_classes
+        
+        # Uncertainty regularization terms
+        embedding_uncertainty_reg = torch.mean(X_uncertainty)
+        proxy_uncertainty_reg = torch.mean(P_uncertainty)
+        
+        # Total loss
+        main_loss = pos_term + neg_term
+        uncertainty_reg = self.uncertainty_weight * (embedding_uncertainty_reg + proxy_uncertainty_reg)
+        loss = main_loss + uncertainty_reg
+        
+        return loss
+    
+    def get_uncertainty_metrics(self, X, X_uncertainty, T):
+        """
+        Get uncertainty metrics for analysis
+        """
+        P = self.proxies
+        P_uncertainty = torch.clamp(self.proxy_uncertainties, 
+                                   min=self.min_uncertainty, 
+                                   max=self.max_uncertainty)
+        
+        X_norm = l2_norm(X)
+        P_norm = l2_norm(P)
+        cos = F.linear(X_norm, P_norm)
+        
+        total_uncertainty = X_uncertainty.unsqueeze(1) + P_uncertainty.unsqueeze(0)
+        uncertainty_weight = 1.0 / (1.0 + total_uncertainty.mean(dim=-1))
+        
+        # Calculate a simple uncertainty-aware loss
+        uncertainty_loss = torch.mean(total_uncertainty) * self.uncertainty_weight
+        return uncertainty_loss 
+    
 # We use PyTorch Metric Learning library for the following codes.
 # Please refer to "https://github.com/KevinMusgrave/pytorch-metric-learning" for details.
 class Proxy_NCA(torch.nn.Module):

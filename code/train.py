@@ -231,6 +231,8 @@ elif args.loss == 'Triplet':
     criterion = losses.TripletLoss().cuda()
 elif args.loss == 'NPair':
     criterion = losses.NPairLoss().cuda()
+elif args.loss == 'Uncertainty_Aware':
+    criterion = losses.Bayesian_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha, uncertainty_weight = args.uncertainty_weight, min_uncertainty = args.min_uncertainty, max_uncertainty = args.max_uncertainty).cuda()
 
 # Train Parameters
 param_groups = [
@@ -238,7 +240,7 @@ param_groups = [
                  list(set(model.module.parameters()).difference(set(model.module.model.embedding.parameters())))},
     {'params': model.model.embedding.parameters() if args.gpu_id != -1 else model.module.model.embedding.parameters(), 'lr':float(args.lr) * 1},
 ]
-if args.loss == 'Proxy_Anchor':
+if args.loss == 'Proxy_Anchor' or args.loss == 'Bayesian_Proxy_Anchor':
     param_groups.append({'params': criterion.parameters(), 'lr':float(args.lr) * 100})
 elif args.loss == 'Proxy_NCA':
     param_groups.append({'params': criterion.parameters(), 'lr':float(args.lr)})
