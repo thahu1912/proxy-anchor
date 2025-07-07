@@ -12,7 +12,7 @@ class Cars(BaseDataset):
             self.classes = range(98,196)
                 
         BaseDataset.__init__(self, self.root, self.mode, self.transform)
-        annos_fn = 'cars_annos.mat'
+        annos_fn = 'devkit/cars_annos.mat'
         cars = scipy.io.loadmat(os.path.join(self.root, annos_fn))
         ys = [int(a[5][0] - 1) for a in cars['annotations'][0]]
         im_paths = [a[0][0] for a in cars['annotations'][0]]
