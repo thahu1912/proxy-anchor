@@ -17,6 +17,7 @@ if [[ ! -d "${CARS196_ROOT}" ]]; then
     unzip cars_annos.zip
     rm cars196.tar
     rm cars_annos.zip
+    mv cars_annos.mat cars196/
 
     popd
 fi
