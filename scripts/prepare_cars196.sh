@@ -5,6 +5,7 @@ set -e
 CARS196_ROOT='data/cars196/'
 CARS196_DATA='199pRuHUlDdtnvOQm-drmj-20P4GrN43T'
 
+
 if [[ ! -d "${CARS196_ROOT}" ]]; then
     mkdir -p data/
     pushd data/

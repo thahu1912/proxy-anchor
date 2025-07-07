@@ -1,5 +1,5 @@
 import torch, math, time, argparse, os
-import random, dataset, utils, code.loss.losses as losses, net
+import random, dataset, utils, losses, net
 import numpy as np
 
 from dataset.Inshop import Inshop_Dataset
