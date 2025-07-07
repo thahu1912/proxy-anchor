@@ -105,10 +105,6 @@ parser.add_argument('--stat-weight', default = 0.01, type = float,
     help = 'Weight for statistical adjustment for Statistical Proxy Anchor'
 )
 
-parser.add_argument('--stat-adjust-weight', default = 0.15, type = float,
-    help = 'Weight for statistical adjustment for Statistical Proxy Anchor'
-)
-
 
 args = parser.parse_args()
 
