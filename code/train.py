@@ -242,6 +242,20 @@ elif args.loss == 'NPair':
     criterion = losses.NPairLoss().cuda()
 elif args.loss == 'Bayesian_Proxy_Anchor':
     criterion = losses.Bayesian_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha, uncertainty_weight = args.uncertainty_weight, min_uncertainty = args.min_uncertainty, max_uncertainty = args.max_uncertainty).cuda()
+elif args.loss == 'Statistical_Proxy_Anchor':
+    criterion = losses.Statistical_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha).cuda()
+elif args.loss == 'Adaptive_Proxy_Anchor':
+    criterion = losses.Adaptive_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha).cuda()
+elif args.loss == 'Curriculum_Proxy_Anchor':
+    criterion = losses.Curriculum_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha).cuda()
+elif args.loss == 'MultiScale_Proxy_Anchor':
+    criterion = losses.MultiScale_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha).cuda()
+elif args.loss == 'Focal_Proxy_Anchor':
+    criterion = losses.Focal_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha).cuda()
+elif args.loss == 'Contrastive_Proxy_Anchor':
+    criterion = losses.Contrastive_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha).cuda()
+elif args.loss == 'Covariance_Bayesian_Proxy_Anchor':
+    criterion = losses.Covariance_Bayesian_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha).cuda()
 else:
     raise ValueError(f"Unsupported loss function: {args.loss}")
 
@@ -251,7 +265,7 @@ param_groups = [
                  list(set(model.module.parameters()).difference(set(model.module.model.embedding.parameters())))},
     {'params': model.model.embedding.parameters() if args.gpu_id != -1 else model.module.model.embedding.parameters(), 'lr':float(args.lr) * 1},
 ]
-if args.loss == 'Proxy_Anchor' or args.loss == 'Bayesian_Proxy_Anchor':
+if args.loss in ['Proxy_Anchor', 'Bayesian_Proxy_Anchor', 'Statistical_Proxy_Anchor', 'Adaptive_Proxy_Anchor', 'Curriculum_Proxy_Anchor', 'MultiScale_Proxy_Anchor', 'Focal_Proxy_Anchor', 'Contrastive_Proxy_Anchor', 'Covariance_Bayesian_Proxy_Anchor']:
     param_groups.append({'params': criterion.parameters(), 'lr':float(args.lr) * 100})
 elif args.loss == 'Proxy_NCA':
     param_groups.append({'params': criterion.parameters(), 'lr':float(args.lr)})
@@ -304,12 +318,17 @@ for epoch in range(0, args.nb_epochs):
     for batch_idx, (x, y) in pbar:                         
         m = model(x.squeeze().cuda())
         
-        # Handle Bayesian Proxy Anchor loss which requires uncertainty
-        if args.loss == 'Bayesian_Proxy_Anchor':
+        # Handle different loss functions
+        if args.loss in ['Bayesian_Proxy_Anchor', 'Covariance_Bayesian_Proxy_Anchor']:
             # Generate dummy uncertainty (you can replace this with actual uncertainty estimation)
             batch_size, embedding_size = m.shape
             uncertainty = torch.ones_like(m) * 0.1  # Fixed uncertainty of 0.1
             loss = criterion(m, uncertainty, y.squeeze().cuda())
+        elif args.loss == 'Curriculum_Proxy_Anchor':
+            # Update curriculum step based on epoch
+            curriculum_step = min(epoch, criterion.curriculum_steps)
+            criterion.set_curriculum_step(curriculum_step)
+            loss = criterion(m, y.squeeze().cuda())
         else:
             loss = criterion(m, y.squeeze().cuda())
         

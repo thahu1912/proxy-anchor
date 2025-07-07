@@ -57,69 +57,98 @@ class Proxy_Anchor(torch.nn.Module):
         
         return loss
 
-class Bayesian_Proxy_Anchor(torch.nn.Module):
+class Statistical_Proxy_Anchor(torch.nn.Module):
     """
-    Uncertainty-aware Bayesian Proxy Anchor Loss
+    Statistical Modeling Proxy Anchor Loss
     
-    This implementation extends the original Proxy Anchor loss with uncertainty estimation
-    by modeling both embeddings and proxies as Gaussian distributions with learnable variances.
+    This implementation extends the original Proxy Anchor loss with statistical modeling
+    similar to CBML, using mean and variance statistics for adaptive learning.
     """
-    def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, uncertainty_weight=0.1, 
-                 min_uncertainty=1e-6, max_uncertainty=1.0):
+    def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, stat_weight=0.1, 
+                 hyper_weight=0.5, adaptive_neg=True):
         torch.nn.Module.__init__(self)
         
         # Proxy Anchor Initialization (mean)
         self.proxies = torch.nn.Parameter(torch.randn(nb_classes, sz_embed).cuda())
         nn.init.kaiming_normal_(self.proxies, mode='fan_out')
         
-        # Proxy uncertainty initialization (variance)
-        self.proxy_uncertainties = torch.nn.Parameter(torch.ones(nb_classes, sz_embed).cuda() * 0.1)
-        nn.init.constant_(self.proxy_uncertainties, 0.1)
+        # Statistical parameters for each class
+        self.class_means = torch.nn.Parameter(torch.zeros(nb_classes, sz_embed).cuda())
+        self.class_variances = torch.nn.Parameter(torch.ones(nb_classes, sz_embed).cuda() * 0.1)
         
         self.nb_classes = nb_classes
         self.sz_embed = sz_embed
         self.mrg = mrg
         self.alpha = alpha
-        self.uncertainty_weight = uncertainty_weight
-        self.min_uncertainty = min_uncertainty
-        self.max_uncertainty = max_uncertainty
+        self.stat_weight = stat_weight
+        self.hyper_weight = hyper_weight
+        self.adaptive_neg = adaptive_neg
         
-    def forward(self, X, X_uncertainty, T):
+    def compute_statistical_similarity(self, X, T):
         """
-        Forward pass for Bayesian Proxy Anchor Loss
-        
-        Args:
-            X: Embeddings (batch_size, sz_embed)
-            X_uncertainty: Embedding uncertainties (batch_size, sz_embed)
-            T: Labels (batch_size,)
+        Compute similarity using statistical modeling (mean and variance)
         """
         P = self.proxies
-        P_uncertainty = torch.clamp(self.proxy_uncertainties, 
-                                   min=self.min_uncertainty, 
-                                   max=self.max_uncertainty)
-        
         # Normalize embeddings and proxies
         X_norm = l2_norm(X)
         P_norm = l2_norm(P)
         
-        # Calculate cosine similarity
-        cos = F.linear(X_norm, P_norm)
+        # Basic cosine similarity
+        cos = F.linear(X_norm, P_norm)  # (batch_size, nb_classes)
         
-        # Calculate uncertainty-aware similarity
-        # Combine embedding and proxy uncertainties
-        total_uncertainty = X_uncertainty.unsqueeze(1) + P_uncertainty.unsqueeze(0)  # (batch_size, nb_classes, sz_embed)
+        # Statistical modeling for each class
+        stat_similarity = torch.zeros_like(cos)
         
-        # Uncertainty-weighted similarity
-        uncertainty_weight = 1.0 / (1.0 + total_uncertainty.mean(dim=-1))  # (batch_size, nb_classes)
-        uncertainty_aware_cos = cos * uncertainty_weight
+        for i in range(self.nb_classes):
+            class_mask = (T == i)
+            if class_mask.sum() > 0:
+                # Get embeddings for this class
+                class_embeddings = X_norm[class_mask]  # (num_class_samples, sz_embed)
+                
+                # Compute class statistics
+                class_mean = class_embeddings.mean(dim=0)  # (sz_embed,)
+                class_var = class_embeddings.var(dim=0)    # (sz_embed,)
+                
+                # Update learnable statistics
+                with torch.no_grad():
+                    self.class_means[i] = 0.9 * self.class_means[i] + 0.1 * class_mean
+                    self.class_variances[i] = 0.9 * self.class_variances[i] + 0.1 * class_var
+                
+                # Compute statistical similarity
+                proxy = P_norm[i]  # (sz_embed,)
+                stat_diff = (proxy - self.class_means[i]) / (torch.sqrt(self.class_variances[i]) + 1e-6)
+                stat_sim = torch.exp(-torch.sum(stat_diff ** 2) / 2)  # Gaussian similarity
+                
+                # Combine with cosine similarity
+                stat_similarity[:, i] = self.hyper_weight * cos[:, i] + (1 - self.hyper_weight) * stat_sim
+        
+        return stat_similarity, cos
+    
+    def forward(self, X, T):
+        """
+        Forward pass for Statistical Proxy Anchor Loss
+        
+        Args:
+            X: Embeddings (batch_size, sz_embed)
+            T: Labels (batch_size,)
+        """
+        P = self.proxies
+        
+        # Compute statistical similarity
+        stat_sim, cos_sim = self.compute_statistical_similarity(X, T)
         
         # Create one-hot encodings
         P_one_hot = binarize(T=T, nb_classes=self.nb_classes)
         N_one_hot = 1 - P_one_hot
         
-        # Calculate exponential terms with uncertainty adjustment
-        pos_exp = torch.exp(-self.alpha * (uncertainty_aware_cos - self.mrg))
-        neg_exp = torch.exp(self.alpha * (uncertainty_aware_cos + self.mrg))
+        # Adaptive margin based on statistics
+        batch_mean = torch.mean(stat_sim)
+        batch_var = torch.var(stat_sim)
+        adaptive_margin = self.mrg * (1 + batch_var / (batch_mean + 1e-6))
+        
+        # Calculate exponential terms
+        pos_exp = torch.exp(-self.alpha * (stat_sim - adaptive_margin))
+        neg_exp = torch.exp(self.alpha * (stat_sim + adaptive_margin))
         
         # Find valid proxies
         with_pos_proxies = torch.nonzero(P_one_hot.sum(dim=0) != 0).squeeze(dim=1)
@@ -133,36 +162,46 @@ class Bayesian_Proxy_Anchor(torch.nn.Module):
         pos_term = torch.log(1 + P_sim_sum).sum() / num_valid_proxies
         neg_term = torch.log(1 + N_sim_sum).sum() / self.nb_classes
         
-        # Uncertainty regularization terms
-        embedding_uncertainty_reg = torch.mean(X_uncertainty)
-        proxy_uncertainty_reg = torch.mean(P_uncertainty)
+        # Statistical regularization terms
+        stat_reg = torch.mean(torch.abs(self.class_means)) + torch.mean(torch.abs(self.class_variances))
+        
+        # Consistency loss: encourage similar samples to have similar statistics
+        consistency_loss = 0
+        for i in range(self.nb_classes):
+            class_mask = (T == i)
+            if class_mask.sum() > 1:
+                class_embeddings = X[class_mask]
+                class_mean = class_embeddings.mean(dim=0)
+                class_var = class_embeddings.var(dim=0)
+                
+                consistency_loss += F.mse_loss(class_mean, self.class_means[i])
+                consistency_loss += F.mse_loss(class_var, self.class_variances[i])
         
         # Total loss
         main_loss = pos_term + neg_term
-        uncertainty_reg = self.uncertainty_weight * (embedding_uncertainty_reg + proxy_uncertainty_reg)
-        loss = main_loss + uncertainty_reg
+        regularization = self.stat_weight * (stat_reg + consistency_loss)
+        total_loss = main_loss + regularization
         
-        return loss
+        return total_loss
     
-    def get_uncertainty_metrics(self, X, X_uncertainty, T):
+    def get_statistical_metrics(self, X, T):
         """
-        Get uncertainty metrics for analysis
+        Get statistical metrics for analysis
         """
-        P = self.proxies
-        P_uncertainty = torch.clamp(self.proxy_uncertainties, 
-                                   min=self.min_uncertainty, 
-                                   max=self.max_uncertainty)
+        stat_sim, cos_sim = self.compute_statistical_similarity(X, T)
         
-        X_norm = l2_norm(X)
-        P_norm = l2_norm(P)
-        cos = F.linear(X_norm, P_norm)
+        # Compute statistical measures
+        batch_mean = torch.mean(stat_sim)
+        batch_var = torch.var(stat_sim)
+        stat_entropy = -torch.mean(stat_sim * torch.log(stat_sim + 1e-6))
         
-        total_uncertainty = X_uncertainty.unsqueeze(1) + P_uncertainty.unsqueeze(0)
-        uncertainty_weight = 1.0 / (1.0 + total_uncertainty.mean(dim=-1))
-        
-        # Calculate a simple uncertainty-aware loss
-        uncertainty_loss = torch.mean(total_uncertainty) * self.uncertainty_weight
-        return uncertainty_loss 
+        return {
+            'mean': batch_mean.item(),
+            'variance': batch_var.item(),
+            'entropy': stat_entropy.item(),
+            'cosine_sim': torch.mean(cos_sim).item(),
+            'stat_sim': torch.mean(stat_sim).item()
+        } 
     
 # We use PyTorch Metric Learning library for the following codes.
 # Please refer to "https://github.com/KevinMusgrave/pytorch-metric-learning" for details.
@@ -219,9 +258,406 @@ class TripletLoss(nn.Module):
 class NPairLoss(nn.Module):
     def __init__(self, l2_reg=0):
         super(NPairLoss, self).__init__()
-        self.l2_reg = l2_reg
-        self.loss_func = losses.NPairsLoss(l2_reg_weight=self.l2_reg, normalize_embeddings = False)
+        self.loss_func = losses.NPairsLoss(l2_reg_weight=l2_reg, normalize_embeddings = False)
         
     def forward(self, embeddings, labels):
         loss = self.loss_func(embeddings, labels)
         return loss
+
+# ===== IMPROVED PROXY ANCHOR LOSSES =====
+
+class Adaptive_Proxy_Anchor(torch.nn.Module):
+    """
+    Proxy Anchor with Adaptive Margin based on class difficulty
+    """
+    def __init__(self, nb_classes, sz_embed, base_mrg=0.1, alpha=32, adaptive_weight=0.1):
+        torch.nn.Module.__init__(self)
+        self.proxies = torch.nn.Parameter(torch.randn(nb_classes, sz_embed).cuda())
+        nn.init.kaiming_normal_(self.proxies, mode='fan_out')
+        
+        # Adaptive margins for each class
+        self.adaptive_margins = torch.nn.Parameter(torch.ones(nb_classes).cuda() * base_mrg)
+        
+        self.nb_classes = nb_classes
+        self.sz_embed = sz_embed
+        self.base_mrg = base_mrg
+        self.alpha = alpha
+        self.adaptive_weight = adaptive_weight
+        
+    def forward(self, X, T):
+        P = self.proxies
+        
+        cos = F.linear(l2_norm(X), l2_norm(P))
+        P_one_hot = binarize(T=T, nb_classes=self.nb_classes)
+        N_one_hot = 1 - P_one_hot
+        
+        # Use adaptive margins for each class
+        adaptive_mrg = self.base_mrg + self.adaptive_margins.unsqueeze(0)
+        
+        pos_exp = torch.exp(-self.alpha * (cos - adaptive_mrg))
+        neg_exp = torch.exp(self.alpha * (cos + adaptive_mrg))
+        
+        with_pos_proxies = torch.nonzero(P_one_hot.sum(dim=0) != 0).squeeze(dim=1)
+        num_valid_proxies = len(with_pos_proxies)
+        
+        P_sim_sum = torch.where(P_one_hot == 1, pos_exp, torch.zeros_like(pos_exp)).sum(dim=0)
+        N_sim_sum = torch.where(N_one_hot == 1, neg_exp, torch.zeros_like(neg_exp)).sum(dim=0)
+        
+        pos_term = torch.log(1 + P_sim_sum).sum() / num_valid_proxies
+        neg_term = torch.log(1 + N_sim_sum).sum() / self.nb_classes
+        
+        # Regularization for adaptive margins
+        margin_reg = self.adaptive_weight * torch.mean(torch.abs(self.adaptive_margins))
+        
+        loss = pos_term + neg_term + margin_reg
+        return loss
+
+class Curriculum_Proxy_Anchor(torch.nn.Module):
+    """
+    Proxy Anchor with Curriculum Learning - gradually increase difficulty
+    """
+    def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, curriculum_steps=10):
+        torch.nn.Module.__init__(self)
+        self.proxies = torch.nn.Parameter(torch.randn(nb_classes, sz_embed).cuda())
+        nn.init.kaiming_normal_(self.proxies, mode='fan_out')
+        
+        self.nb_classes = nb_classes
+        self.sz_embed = sz_embed
+        self.mrg = mrg
+        self.alpha = alpha
+        self.curriculum_steps = curriculum_steps
+        self.current_step = 0
+        
+    def set_curriculum_step(self, step):
+        """Set current curriculum step (0 to curriculum_steps)"""
+        self.current_step = min(step, self.curriculum_steps)
+        
+    def forward(self, X, T):
+        P = self.proxies
+        
+        cos = F.linear(l2_norm(X), l2_norm(P))
+        P_one_hot = binarize(T=T, nb_classes=self.nb_classes)
+        N_one_hot = 1 - P_one_hot
+        
+        # Curriculum: gradually increase margin and alpha
+        curriculum_ratio = self.current_step / self.curriculum_steps
+        adaptive_mrg = self.mrg * (0.5 + 0.5 * curriculum_ratio)
+        adaptive_alpha = self.alpha * (0.5 + 0.5 * curriculum_ratio)
+        
+        pos_exp = torch.exp(-adaptive_alpha * (cos - adaptive_mrg))
+        neg_exp = torch.exp(adaptive_alpha * (cos + adaptive_mrg))
+        
+        with_pos_proxies = torch.nonzero(P_one_hot.sum(dim=0) != 0).squeeze(dim=1)
+        num_valid_proxies = len(with_pos_proxies)
+        
+        P_sim_sum = torch.where(P_one_hot == 1, pos_exp, torch.zeros_like(pos_exp)).sum(dim=0)
+        N_sim_sum = torch.where(N_one_hot == 1, neg_exp, torch.zeros_like(neg_exp)).sum(dim=0)
+        
+        pos_term = torch.log(1 + P_sim_sum).sum() / num_valid_proxies
+        neg_term = torch.log(1 + N_sim_sum).sum() / self.nb_classes
+        
+        loss = pos_term + neg_term
+        return loss
+
+class MultiScale_Proxy_Anchor(torch.nn.Module):
+    """
+    Proxy Anchor with Multi-Scale Similarity
+    """
+    def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, scales=[0.5, 1.0, 2.0]):
+        torch.nn.Module.__init__(self)
+        self.proxies = torch.nn.Parameter(torch.randn(nb_classes, sz_embed).cuda())
+        nn.init.kaiming_normal_(self.proxies, mode='fan_out')
+        
+        self.nb_classes = nb_classes
+        self.sz_embed = sz_embed
+        self.mrg = mrg
+        self.alpha = alpha
+        self.scales = scales
+        
+    def forward(self, X, T):
+        P = self.proxies
+        
+        # Multi-scale similarities
+        multi_scale_loss = 0
+        for scale in self.scales:
+            X_scaled = X * scale
+            P_scaled = P * scale
+            
+            cos = F.linear(l2_norm(X_scaled), l2_norm(P_scaled))
+            P_one_hot = binarize(T=T, nb_classes=self.nb_classes)
+            N_one_hot = 1 - P_one_hot
+            
+            pos_exp = torch.exp(-self.alpha * (cos - self.mrg))
+            neg_exp = torch.exp(self.alpha * (cos + self.mrg))
+            
+            with_pos_proxies = torch.nonzero(P_one_hot.sum(dim=0) != 0).squeeze(dim=1)
+            num_valid_proxies = len(with_pos_proxies)
+            
+            P_sim_sum = torch.where(P_one_hot == 1, pos_exp, torch.zeros_like(pos_exp)).sum(dim=0)
+            N_sim_sum = torch.where(N_one_hot == 1, neg_exp, torch.zeros_like(neg_exp)).sum(dim=0)
+            
+            pos_term = torch.log(1 + P_sim_sum).sum() / num_valid_proxies
+            neg_term = torch.log(1 + N_sim_sum).sum() / self.nb_classes
+            
+            multi_scale_loss += (pos_term + neg_term) / len(self.scales)
+        
+        return multi_scale_loss
+
+class Focal_Proxy_Anchor(torch.nn.Module):
+    """
+    Proxy Anchor with Focal Loss for handling hard examples
+    """
+    def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, gamma=2.0, focal_weight=0.25):
+        torch.nn.Module.__init__(self)
+        self.proxies = torch.nn.Parameter(torch.randn(nb_classes, sz_embed).cuda())
+        nn.init.kaiming_normal_(self.proxies, mode='fan_out')
+        
+        self.nb_classes = nb_classes
+        self.sz_embed = sz_embed
+        self.mrg = mrg
+        self.alpha = alpha
+        self.gamma = gamma
+        self.focal_weight = focal_weight
+        
+    def forward(self, X, T):
+        P = self.proxies
+        
+        cos = F.linear(l2_norm(X), l2_norm(P))
+        P_one_hot = binarize(T=T, nb_classes=self.nb_classes)
+        N_one_hot = 1 - P_one_hot
+        
+        pos_exp = torch.exp(-self.alpha * (cos - self.mrg))
+        neg_exp = torch.exp(self.alpha * (cos + self.mrg))
+        
+        # Focal weighting for hard examples
+        pos_confidence = torch.sigmoid(cos)
+        neg_confidence = 1 - pos_confidence
+        
+        pos_focal_weight = (1 - pos_confidence) ** self.gamma
+        neg_focal_weight = (1 - neg_confidence) ** self.gamma
+        
+        with_pos_proxies = torch.nonzero(P_one_hot.sum(dim=0) != 0).squeeze(dim=1)
+        num_valid_proxies = len(with_pos_proxies)
+        
+        P_sim_sum = torch.where(P_one_hot == 1, pos_exp * pos_focal_weight, torch.zeros_like(pos_exp)).sum(dim=0)
+        N_sim_sum = torch.where(N_one_hot == 1, neg_exp * neg_focal_weight, torch.zeros_like(neg_exp)).sum(dim=0)
+        
+        pos_term = torch.log(1 + P_sim_sum).sum() / num_valid_proxies
+        neg_term = torch.log(1 + N_sim_sum).sum() / self.nb_classes
+        
+        loss = pos_term + neg_term
+        return loss
+
+class Contrastive_Proxy_Anchor(torch.nn.Module):
+    """
+    Proxy Anchor combined with Contrastive Learning
+    """
+    def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, contrastive_weight=0.1, temp=0.07):
+        torch.nn.Module.__init__(self)
+        self.proxies = torch.nn.Parameter(torch.randn(nb_classes, sz_embed).cuda())
+        nn.init.kaiming_normal_(self.proxies, mode='fan_out')
+        
+        self.nb_classes = nb_classes
+        self.sz_embed = sz_embed
+        self.mrg = mrg
+        self.alpha = alpha
+        self.contrastive_weight = contrastive_weight
+        self.temp = temp
+        
+    def forward(self, X, T):
+        P = self.proxies
+        
+        # Original Proxy Anchor
+        cos = F.linear(l2_norm(X), l2_norm(P))
+        P_one_hot = binarize(T=T, nb_classes=self.nb_classes)
+        N_one_hot = 1 - P_one_hot
+        
+        pos_exp = torch.exp(-self.alpha * (cos - self.mrg))
+        neg_exp = torch.exp(self.alpha * (cos + self.mrg))
+        
+        with_pos_proxies = torch.nonzero(P_one_hot.sum(dim=0) != 0).squeeze(dim=1)
+        num_valid_proxies = len(with_pos_proxies)
+        
+        P_sim_sum = torch.where(P_one_hot == 1, pos_exp, torch.zeros_like(pos_exp)).sum(dim=0)
+        N_sim_sum = torch.where(N_one_hot == 1, neg_exp, torch.zeros_like(neg_exp)).sum(dim=0)
+        
+        pos_term = torch.log(1 + P_sim_sum).sum() / num_valid_proxies
+        neg_term = torch.log(1 + N_sim_sum).sum() / self.nb_classes
+        
+        proxy_loss = pos_term + neg_term
+        
+        # Contrastive loss between samples
+        X_norm = l2_norm(X)
+        sample_sim = F.linear(X_norm, X_norm) / self.temp
+        
+        # Create mask for positive pairs (same class)
+        T_expanded = T.unsqueeze(1)
+        positive_mask = (T_expanded == T_expanded.T).float()
+        negative_mask = 1 - positive_mask
+        
+        # Remove self-similarity
+        positive_mask.fill_diagonal_(0)
+        
+        # Contrastive loss
+        exp_sim = torch.exp(sample_sim)
+        log_prob = sample_sim - torch.log(exp_sim.sum(dim=1, keepdim=True))
+        
+        contrastive_loss = -(positive_mask * log_prob).sum(dim=1) / (positive_mask.sum(dim=1) + 1e-8)
+        contrastive_loss = contrastive_loss.mean()
+        
+        total_loss = proxy_loss + self.contrastive_weight * contrastive_loss
+        return total_loss
+
+class Covariance_Bayesian_Proxy_Anchor(torch.nn.Module):
+    """
+    Improved Bayesian Proxy Anchor with Uncertainty-Integrated Covariance Matrix
+    
+    This version integrates uncertainty directly into covariance matrices and uses
+    Mahalanobis distance for better metric learning with simplified regularization.
+    """
+    def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, reg_weight=0.1, 
+                 min_uncertainty=1e-6, max_uncertainty=1.0):
+        torch.nn.Module.__init__(self)
+        
+        # Proxy Anchor Initialization (mean)
+        self.proxies = torch.nn.Parameter(torch.randn(nb_classes, sz_embed).cuda())
+        nn.init.kaiming_normal_(self.proxies, mode='fan_out')
+        
+        # Uncertainty-integrated covariance matrices for each class
+        # Each covariance matrix includes uncertainty information
+        self.class_covariances = torch.nn.Parameter(
+            torch.eye(sz_embed).unsqueeze(0).repeat(nb_classes, 1, 1).cuda() * 0.1
+        )
+        
+        # Global uncertainty scaling factor
+        self.global_uncertainty = torch.nn.Parameter(torch.ones(1).cuda() * 0.1)
+        
+        self.nb_classes = nb_classes
+        self.sz_embed = sz_embed
+        self.mrg = mrg
+        self.alpha = alpha
+        self.reg_weight = reg_weight
+        self.min_uncertainty = min_uncertainty
+        self.max_uncertainty = max_uncertainty
+        
+    def compute_uncertainty_integrated_covariance(self, X_uncertainty, P_uncertainty):
+        """
+        Integrate uncertainty directly into covariance matrices
+        """
+        # X_uncertainty: (batch_size, sz_embed)
+        # P_uncertainty: (nb_classes, sz_embed)
+        
+        # Create uncertainty matrices
+        X_unc_mat = torch.diag_embed(X_uncertainty)  # (batch_size, sz_embed, sz_embed)
+        P_unc_mat = torch.diag_embed(P_uncertainty)  # (nb_classes, sz_embed, sz_embed)
+        
+        # Integrate with class covariances
+        integrated_cov = self.class_covariances + P_unc_mat  # (nb_classes, sz_embed, sz_embed)
+        
+        return integrated_cov, X_unc_mat
+    
+    def compute_mahalanobis_similarity(self, X, P, integrated_cov):
+        """
+        Compute similarity using Mahalanobis distance with uncertainty integration
+        """
+        # X: (batch_size, sz_embed), P: (nb_classes, sz_embed)
+        # integrated_cov: (nb_classes, sz_embed, sz_embed)
+        
+        diff = X.unsqueeze(1) - P.unsqueeze(0)  # (batch_size, nb_classes, sz_embed)
+        
+        # Add small diagonal term for numerical stability
+        cov_stable = integrated_cov + torch.eye(self.sz_embed).cuda() * 1e-6
+        
+        # Compute inverse covariance
+        try:
+            cov_inv = torch.inverse(cov_stable)  # (nb_classes, sz_embed, sz_embed)
+        except:
+            # Fallback to pseudo-inverse if singular
+            cov_inv = torch.pinverse(cov_stable)
+        
+        # Compute Mahalanobis distance
+        mahal_dist = torch.sqrt(
+            torch.sum(
+                diff.unsqueeze(-2) @ cov_inv.unsqueeze(0) @ diff.unsqueeze(-1),
+                dim=(-2, -1)
+            )
+        )  # (batch_size, nb_classes)
+        
+        # Convert distance to similarity (inverse relationship)
+        mahal_sim = torch.exp(-mahal_dist * self.global_uncertainty)
+        
+        return mahal_sim
+    
+    def forward(self, X, X_uncertainty, T):
+        """
+        Forward pass for Uncertainty-Integrated Covariance Bayesian Proxy Anchor
+        
+        Args:
+            X: Embeddings (batch_size, sz_embed)
+            X_uncertainty: Embedding uncertainties (batch_size, sz_embed)
+            T: Labels (batch_size,)
+        """
+        P = self.proxies
+        
+        # Create proxy uncertainties (learnable per class)
+        P_uncertainty = torch.clamp(
+            torch.ones_like(P) * self.global_uncertainty, 
+            min=self.min_uncertainty, 
+            max=self.max_uncertainty
+        )
+        
+        # Compute uncertainty-integrated covariance
+        integrated_cov, X_unc_mat = self.compute_uncertainty_integrated_covariance(X_uncertainty, P_uncertainty)
+        
+        # Compute Mahalanobis similarity
+        mahal_sim = self.compute_mahalanobis_similarity(X, P, integrated_cov)
+        
+        # Also compute cosine similarity for combination
+        X_norm = l2_norm(X)
+        P_norm = l2_norm(P)
+        cos_sim = F.linear(X_norm, P_norm)
+        
+        # Combine Mahalanobis and cosine similarities
+        combined_sim = 0.6 * mahal_sim + 0.4 * cos_sim
+        
+        # Create one-hot encodings
+        P_one_hot = binarize(T=T, nb_classes=self.nb_classes)
+        N_one_hot = 1 - P_one_hot
+        
+        # Calculate exponential terms
+        pos_exp = torch.exp(-self.alpha * (combined_sim - self.mrg))
+        neg_exp = torch.exp(self.alpha * (combined_sim + self.mrg))
+        
+        # Find valid proxies
+        with_pos_proxies = torch.nonzero(P_one_hot.sum(dim=0) != 0).squeeze(dim=1)
+        num_valid_proxies = len(with_pos_proxies)
+        
+        # Calculate similarity sums
+        P_sim_sum = torch.where(P_one_hot == 1, pos_exp, torch.zeros_like(pos_exp)).sum(dim=0)
+        N_sim_sum = torch.where(N_one_hot == 1, neg_exp, torch.zeros_like(neg_exp)).sum(dim=0)
+        
+        # Main loss terms
+        pos_term = torch.log(1 + P_sim_sum).sum() / num_valid_proxies
+        neg_term = torch.log(1 + N_sim_sum).sum() / self.nb_classes
+        
+        # Simplified regularization term
+        # Includes covariance regularization, uncertainty regularization, and consistency
+        cov_reg = torch.mean(torch.abs(self.class_covariances))
+        uncertainty_reg = torch.mean(X_uncertainty) + torch.mean(P_uncertainty)
+        
+        # Covariance consistency: encourage similar samples to have similar covariance
+        consistency_loss = 0
+        for i in range(self.nb_classes):
+            class_mask = (T == i)
+            if class_mask.sum() > 1:
+                class_embeddings = X[class_mask]
+                class_cov = torch.cov(class_embeddings.T)
+                target_cov = self.class_covariances[i]
+                consistency_loss += F.mse_loss(class_cov, target_cov)
+        
+        # Total loss with simplified structure
+        main_loss = pos_term + neg_term
+        regularization = self.reg_weight * (cov_reg + uncertainty_reg + consistency_loss)
+        total_loss = main_loss + regularization
+        
+        return total_loss
