@@ -57,6 +57,101 @@ class Proxy_Anchor(torch.nn.Module):
         
         return loss
 
+class Simple_Statistical_Proxy_Anchor(torch.nn.Module):
+    """
+    Simple Statistical Proxy Anchor Loss - More numerically stable version
+    
+    This is a simplified version that avoids complex statistical computations
+    that can lead to NaN values.
+    """
+    def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, stat_weight=0.01):
+        torch.nn.Module.__init__(self)
+        
+        # Proxy Anchor Initialization
+        self.proxies = torch.nn.Parameter(torch.randn(nb_classes, sz_embed).cuda())
+        nn.init.kaiming_normal_(self.proxies, mode='fan_out')
+        
+        # Simple statistical parameters
+        self.class_centers = torch.nn.Parameter(torch.zeros(nb_classes, sz_embed).cuda(), requires_grad=False)
+        
+        self.nb_classes = nb_classes
+        self.sz_embed = sz_embed
+        self.mrg = mrg
+        self.alpha = alpha
+        self.stat_weight = stat_weight
+        
+    def forward(self, X, T):
+        """
+        Forward pass for Simple Statistical Proxy Anchor Loss
+        
+        Args:
+            X: Embeddings (batch_size, sz_embed)
+            T: Labels (batch_size,)
+        """
+        P = self.proxies
+        
+        # Normalize embeddings and proxies
+        X_norm = l2_norm(X)
+        P_norm = l2_norm(P)
+        
+        # Basic cosine similarity
+        cos = F.linear(X_norm, P_norm)  # (batch_size, nb_classes)
+        
+        # Simple statistical adjustment (do NOT update centers here)
+        stat_adjustment = torch.zeros_like(cos)
+        for i in range(self.nb_classes):
+            proxy = P_norm[i]  # (sz_embed,)
+            center_sim = F.cosine_similarity(proxy.unsqueeze(0), self.class_centers[i].unsqueeze(0))
+            stat_adjustment[:, i] = center_sim * 0.1  # Small adjustment
+        
+        # Combine similarities
+        combined_sim = cos + stat_adjustment
+        
+        # Create one-hot encodings
+        P_one_hot = binarize(T=T, nb_classes=self.nb_classes)
+        N_one_hot = 1 - P_one_hot
+        
+        # Calculate exponential terms
+        pos_exp = torch.exp(-self.alpha * (combined_sim - self.mrg))
+        neg_exp = torch.exp(self.alpha * (combined_sim + self.mrg))
+        
+        # Find valid proxies
+        with_pos_proxies = torch.nonzero(P_one_hot.sum(dim=0) != 0).squeeze(dim=1)
+        num_valid_proxies = len(with_pos_proxies)
+        
+        # Calculate similarity sums
+        P_sim_sum = torch.where(P_one_hot == 1, pos_exp, torch.zeros_like(pos_exp)).sum(dim=0)
+        N_sim_sum = torch.where(N_one_hot == 1, neg_exp, torch.zeros_like(neg_exp)).sum(dim=0)
+        
+        # Main loss terms
+        pos_term = torch.log(1 + P_sim_sum).sum() / num_valid_proxies
+        neg_term = torch.log(1 + N_sim_sum).sum() / self.nb_classes
+        
+        # Simple regularization
+        center_reg = torch.mean(torch.abs(self.class_centers))
+        
+        # Total loss
+        main_loss = pos_term + neg_term
+        regularization = self.stat_weight * center_reg
+        total_loss = main_loss + regularization
+        
+        return total_loss
+
+    def update_centers(self, X, T):
+        """
+        Update class centers after optimizer.step().
+        Call this in your training loop: criterion.update_centers(m.detach(), y.detach())
+        """
+        X_norm = l2_norm(X)
+        with torch.no_grad():
+            for i in range(self.nb_classes):
+                class_mask = (T == i)
+                if class_mask.sum() > 0:
+                    class_embeddings = X_norm[class_mask]
+                    class_center = class_embeddings.mean(dim=0)
+                    new_center = 0.9 * self.class_centers[i] + 0.1 * class_center
+                    self.class_centers[i].copy_(new_center)
+
 class Statistical_Proxy_Anchor(torch.nn.Module):
     """
     Statistical Modeling Proxy Anchor Loss (Simplified Version)
@@ -97,7 +192,7 @@ class Statistical_Proxy_Anchor(torch.nn.Module):
         # Basic cosine similarity
         cos = F.linear(X_norm, P_norm)  # (batch_size, nb_classes)
         
-        # Simple statistical adjustment
+        # Simple statistical adjustment (no in-place operations)
         stat_adjustment = torch.zeros_like(cos)
         
         for i in range(self.nb_classes):
@@ -109,11 +204,7 @@ class Statistical_Proxy_Anchor(torch.nn.Module):
                 # Compute simple class center
                 class_center = class_embeddings.mean(dim=0)  # (sz_embed,)
                 
-                # Update learnable center
-                with torch.no_grad():
-                    self.class_centers[i] = 0.9 * self.class_centers[i] + 0.1 * class_center
-                
-                # Simple center-based adjustment
+                # Use current class center for similarity
                 proxy = P_norm[i]  # (sz_embed,)
                 center_sim = F.cosine_similarity(proxy.unsqueeze(0), self.class_centers[i].unsqueeze(0))
                 stat_adjustment[:, i] = center_sim * 0.1  # Small adjustment
