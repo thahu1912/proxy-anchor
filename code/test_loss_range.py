@@ -80,8 +80,11 @@ def test_loss_range():
             components = loss_fn.get_loss_components(embeddings, uncertainties, labels)
             
             print(f"Uncertainty level {uncertainty_level}:")
-            print(f"  Total Loss: {components['total_loss'].item():.4f}")
-            print(f"  Mean Uncertainty: {components['mean_uncertainty'].item():.4f}")
+            total_loss = components['total_loss']
+            mean_uncertainty = components['mean_uncertainty']
+            
+            print(f"  Total Loss: {total_loss.item() if isinstance(total_loss, torch.Tensor) else total_loss:.4f}")
+            print(f"  Mean Uncertainty: {mean_uncertainty.item() if isinstance(mean_uncertainty, torch.Tensor) else mean_uncertainty:.4f}")
             
         except Exception as e:
             print(f"  ❌ ERROR: {e}")
