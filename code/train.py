@@ -105,7 +105,15 @@ parser.add_argument('--stat-weight', default = 0.01, type = float,
     help = 'Weight for statistical adjustment for Statistical Proxy Anchor'
 )
 
-
+parser.add_argument('--base-margin', default = 0.1, type = float,
+    help = 'Base margin for Adaptive Triplet Loss'
+)
+parser.add_argument('--hard-mining', default = True, type = bool,
+    help = 'Hard mining for Adaptive Triplet Loss'
+)
+parser.add_argument('--adaptive-weight', default = 0.1, type = float,
+    help = 'Adaptive weight for Adaptive Triplet Loss'
+)
 args = parser.parse_args()
 
 if args.gpu_id != -1:
