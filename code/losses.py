@@ -71,8 +71,9 @@ class Statistical_Proxy_Anchor(torch.nn.Module):
         self.proxies = torch.nn.Parameter(torch.randn(nb_classes, sz_embed).cuda())
         nn.init.kaiming_normal_(self.proxies, mode='fan_out')
         
-        # Simple statistical parameters
+        # Statistical parameters
         self.class_centers = torch.nn.Parameter(torch.zeros(nb_classes, sz_embed).cuda(), requires_grad=False)
+        self.class_variances = torch.nn.Parameter(torch.ones(nb_classes, sz_embed).cuda() * 0.1, requires_grad=False)
         
         self.nb_classes = nb_classes
         self.sz_embed = sz_embed
@@ -82,7 +83,7 @@ class Statistical_Proxy_Anchor(torch.nn.Module):
         
     def forward(self, X, T):
         """
-        Forward pass for Simple Statistical Proxy Anchor Loss
+        Forward pass for Statistical Proxy Anchor Loss with Variance
         
         Args:
             X: Embeddings (batch_size, sz_embed)
@@ -97,12 +98,30 @@ class Statistical_Proxy_Anchor(torch.nn.Module):
         # Basic cosine similarity
         cos = F.linear(X_norm, P_norm)  # (batch_size, nb_classes)
         
-        # Simple statistical adjustment (do NOT update centers here)
+        # Statistical adjustment with variance
         stat_adjustment = torch.zeros_like(cos)
         for i in range(self.nb_classes):
-            proxy = P_norm[i]  # (sz_embed,)
-            center_sim = F.cosine_similarity(proxy.unsqueeze(0), self.class_centers[i].unsqueeze(0))
-            stat_adjustment[:, i] = center_sim * 0.1  # Small adjustment
+            class_mask = (T == i)
+            if class_mask.sum() > 0:
+                # Get embeddings for this class
+                class_embeddings = X_norm[class_mask]  # (num_class_samples, sz_embed)
+                
+                # Compute center and variance
+                class_center = class_embeddings.mean(dim=0)  # (sz_embed,)
+                class_var = class_embeddings.var(dim=0, unbiased=False)  # (sz_embed,)
+                
+                # Clamp variance for numerical stability
+                class_var = torch.clamp(class_var, min=1e-6, max=10.0)
+                
+                # Center similarity
+                proxy = P_norm[i]  # (sz_embed,)
+                center_sim = F.cosine_similarity(proxy.unsqueeze(0), self.class_centers[i].unsqueeze(0))
+                
+                # Variance-based weight (lower variance = higher confidence)
+                var_weight = 1.0 / (1.0 + class_var.mean())
+                
+                # Combined adjustment
+                stat_adjustment[:, i] = center_sim * var_weight * 0.15  # Increased weight
         
         # Combine similarities
         combined_sim = cos + stat_adjustment
@@ -137,9 +156,20 @@ class Statistical_Proxy_Anchor(torch.nn.Module):
         
         return total_loss
 
+    def get_variance_stats(self):
+        """
+        Get variance statistics for analysis
+        """
+        return {
+            'mean_variance': torch.mean(self.class_variances).item(),
+            'max_variance': torch.max(self.class_variances).item(),
+            'min_variance': torch.min(self.class_variances).item(),
+            'std_variance': torch.std(self.class_variances).item()
+        }
+
     def update_centers(self, X, T):
         """
-        Update class centers after optimizer.step().
+        Update class centers and track variance statistics after optimizer.step().
         Call this in your training loop: criterion.update_centers(m.detach(), y.detach())
         """
         X_norm = l2_norm(X)
@@ -149,8 +179,15 @@ class Statistical_Proxy_Anchor(torch.nn.Module):
                 if class_mask.sum() > 0:
                     class_embeddings = X_norm[class_mask]
                     class_center = class_embeddings.mean(dim=0)
+                    class_var = class_embeddings.var(dim=0, unbiased=False)
+                    
+                    # Update center
                     new_center = 0.9 * self.class_centers[i] + 0.1 * class_center
                     self.class_centers[i].copy_(new_center)
+                    
+                    # Update variance tracking
+                    new_var = 0.9 * self.class_variances[i] + 0.1 * class_var
+                    self.class_variances[i].copy_(new_var)
 
     
 # We use PyTorch Metric Learning library for the following codes.
