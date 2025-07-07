@@ -102,6 +102,28 @@ parser.add_argument('--min-uncertainty', default = 1e-6, type = float,
 parser.add_argument('--max-uncertainty', default = 1.0, type = float,
     help = 'Maximum uncertainty value for Bayesian Proxy Anchor'
 )
+parser.add_argument('--temperature', default = 1.0, type = float,
+    help = 'Temperature for Bayesian Triplet'
+)
+parser.add_argument('--uncertainty-regularization', default = True, type = bool,
+    help = 'Uncertainty regularization for Bayesian Triplet'
+)
+parser.add_argument('--triplet-mining', default = 'hardest', type = str,
+    help = 'Triplet mining for Bayesian Triplet'
+)
+parser.add_argument('--distance-metric', default = 'euclidean', type = str,
+    help = 'Distance metric for Bayesian Triplet'
+)
+parser.add_argument('--uncertainty-type', default = 'gaussian', type = str,
+    help = 'Uncertainty type for Bayesian Triplet'
+)
+parser.add_argument('--loss-scale', default = 10.0, type = float,
+    help = 'Loss scale for Bayesian Triplet'
+)
+parser.add_argument('--adaptive-margin', default = True, type = bool,
+    help = 'Adaptive margin for Bayesian Triplet'
+)
+
 
 args = parser.parse_args()
 
@@ -242,6 +264,9 @@ elif args.loss == 'NPair':
     criterion = losses.NPairLoss().cuda()
 elif args.loss == 'Bayesian_Proxy_Anchor':
     criterion = losses.Bayesian_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha, uncertainty_weight = args.uncertainty_weight, min_uncertainty = args.min_uncertainty, max_uncertainty = args.max_uncertainty).cuda()
+elif args.loss == 'Bayesian_Triplet':
+    criterion = losses.BayesianTripletLoss(margin=args.mrg, uncertainty_weight=args.uncertainty_weight, loss_scale=args.loss_scale, adaptive_margin=args.adaptive_margin, triplet_mining=args.triplet_mining, distance_metric=args.distance_metric, uncertainty_type=args.uncertainty_type, min_uncertainty=args.min_uncertainty, max_uncertainty=args.max_uncertainty, temperature=args.temperature, uncertainty_regularization=args.uncertainty_regularization).cuda()
+
 else:
     raise ValueError(f"Unsupported loss function: {args.loss}")
 
