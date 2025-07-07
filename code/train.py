@@ -251,12 +251,8 @@ elif args.loss == 'Curriculum_Proxy_Anchor':
     criterion = losses.Curriculum_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha).cuda()
 elif args.loss == 'MultiScale_Proxy_Anchor':
     criterion = losses.MultiScale_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha).cuda()
-elif args.loss == 'Focal_Proxy_Anchor':
-    criterion = losses.Focal_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha).cuda()
-elif args.loss == 'Contrastive_Proxy_Anchor':
-    criterion = losses.Contrastive_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha).cuda()
-elif args.loss == 'Covariance_Bayesian_Proxy_Anchor':
-    criterion = losses.Covariance_Bayesian_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha).cuda()
+elif args.loss == 'AdaptiveTripletLoss':
+    criterion = losses.AdaptiveTripletLoss(base_margin=args.mrg, hard_mining=True, adaptive_weight=args.adaptive_weight, stat_weight=args.stat_weight, ema_decay=args.ema_decay).cuda()
 else:
     raise ValueError(f"Unsupported loss function: {args.loss}")
 
@@ -320,24 +316,13 @@ for epoch in range(0, args.nb_epochs):
         m = model(x.squeeze().cuda())
         
         # Handle different loss functions
-        if args.loss in ['Bayesian_Proxy_Anchor', 'Covariance_Bayesian_Proxy_Anchor']:
-            # Generate dummy uncertainty (you can replace this with actual uncertainty estimation)
-            batch_size, embedding_size = m.shape
-            uncertainty = torch.ones_like(m) * 0.1  # Fixed uncertainty of 0.1
-            loss = criterion(m, uncertainty, y.squeeze().cuda())
-        elif args.loss == 'Curriculum_Proxy_Anchor':
-            # Update curriculum step based on epoch
-            curriculum_step = min(epoch, criterion.curriculum_steps)
-            criterion.set_curriculum_step(curriculum_step)
-            loss = criterion(m, y.squeeze().cuda())
-        else:
-            loss = criterion(m, y.squeeze().cuda())
+        loss = criterion(m, y.squeeze().cuda())
         
         opt.zero_grad()
         loss.backward()
         
         torch.nn.utils.clip_grad_value_(model.parameters(), 10)
-        if args.loss == 'Proxy_Anchor' or args.loss == 'Bayesian_Proxy_Anchor':
+        if args.loss == 'Proxy_Anchor':
             torch.nn.utils.clip_grad_value_(criterion.parameters(), 10)
 
         losses_per_epoch.append(loss.data.cpu().numpy())
