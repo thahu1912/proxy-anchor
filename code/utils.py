@@ -28,6 +28,22 @@ def calc_recall_at_k(T, Y, k):
             s += 1
     return s / (1. * len(T))
 
+def calc_precision_at_k(T, Y, k):
+    """
+    T : [nb_samples] (target labels)
+    Y : [nb_samples x k] (k predicted labels/neighbours)
+    """
+    total_correct = 0
+    total_predictions = 0
+    
+    for t, y in zip(T, Y):
+        predictions = torch.Tensor(y).long()[:k]
+        correct = (predictions == t).sum().item()
+        total_correct += correct
+        total_predictions += len(predictions)
+    
+    return total_correct / (1. * total_predictions) if total_predictions > 0 else 0.0
+
 
 def predict_batchwise(model, dataloader):
     device = "cuda"
@@ -81,12 +97,15 @@ def evaluate_cos(model, dataloader):
     Y = Y.float().cpu()
     
     recall = []
+    precision = []
     for k in [1, 2, 4, 8, 16, 32]:
         r_at_k = calc_recall_at_k(T, Y, k)
+        p_at_k = calc_precision_at_k(T, Y, k)
         recall.append(r_at_k)
-        print("R@{} : {:.3f}".format(k, 100 * r_at_k))
+        precision.append(p_at_k)
+        print("R@{} : {:.3f}, P@{} : {:.3f}".format(k, 100 * r_at_k, k, 100 * p_at_k))
 
-    return recall
+    return recall, precision
 
 def evaluate_cos_Inshop(model, query_dataloader, gallery_dataloader):
     nb_classes = query_dataloader.dataset.nb_classes()
@@ -120,14 +139,34 @@ def evaluate_cos_Inshop(model, query_dataloader, gallery_dataloader):
             
         return match_counter / m
     
+    def precision_k(cos_sim, query_T, gallery_T, k):
+        m = len(cos_sim)
+        total_correct = 0
+        total_predictions = 0
+        
+        for i in range(m):
+            # Get top-k predictions
+            top_k_indices = torch.topk(cos_sim[i], k)[1]
+            predictions = gallery_T[top_k_indices]
+            target = query_T[i]
+            
+            correct = (predictions == target).sum().item()
+            total_correct += correct
+            total_predictions += k
+            
+        return total_correct / (1. * total_predictions) if total_predictions > 0 else 0.0
+    
     # calculate recall @ 1, 2, 4, 8
     recall = []
+    precision = []
     for k in [1, 10, 20, 30, 40, 50]:
         r_at_k = recall_k(cos_sim, query_T, gallery_T, k)
+        p_at_k = precision_k(cos_sim, query_T, gallery_T, k)
         recall.append(r_at_k)
-        print("R@{} : {:.3f}".format(k, 100 * r_at_k))
+        precision.append(p_at_k)
+        print("R@{} : {:.3f}, P@{} : {:.3f}".format(k, 100 * r_at_k, k, 100 * p_at_k))
                 
-    return recall
+    return recall, precision
 
 def evaluate_cos_SOP(model, dataloader):
     nb_classes = dataloader.dataset.nb_classes()
@@ -140,6 +179,8 @@ def evaluate_cos_SOP(model, dataloader):
     K = 1000
     Y = []
     xs = []
+    T_device = None  # Initialize T_device
+    
     for x in X:
         if len(xs)<10000:
             xs.append(x)
@@ -157,15 +198,19 @@ def evaluate_cos_SOP(model, dataloader):
     xs = torch.stack(xs,dim=0)
     cos_sim = F.linear(xs,X)
     # Ensure T is on the same device as cos_sim
-    T_device = T.to(cos_sim.device)
+    if T_device is None:
+        T_device = T.to(cos_sim.device)
     y = T_device[cos_sim.topk(1 + K)[1][:,1:]]
     Y.append(y.float().cpu())
     Y = torch.cat(Y, dim=0)
 
     # calculate recall @ 1, 2, 4, 8
     recall = []
+    precision = []
     for k in [1, 10, 100, 1000]:
         r_at_k = calc_recall_at_k(T, Y, k)
+        p_at_k = calc_precision_at_k(T, Y, k)
         recall.append(r_at_k)
-        print("R@{} : {:.3f}".format(k, 100 * r_at_k))
-    return recall
+        precision.append(p_at_k)
+        print("R@{} : {:.3f}, P@{} : {:.3f}".format(k, 100 * r_at_k, k, 100 * p_at_k))
+    return recall, precision
