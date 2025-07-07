@@ -16,6 +16,7 @@ def test_loss_range():
     config = BayesianTripletConfig(
         margin=0.3,
         uncertainty_weight=0.05,
+        loss_scale=10.0,  # Scale to get loss in 10-15 range
         adaptive_margin=True,
         triplet_mining='hardest',
         distance_metric='euclidean',
@@ -33,7 +34,7 @@ def test_loss_range():
     print(f"Device: {device}")
     print(f"Batch size: {batch_size}")
     print(f"Embedding dimension: {embedding_dim}")
-    print(f"Config: margin={config.margin}, uncertainty_weight={config.uncertainty_weight}")
+    print(f"Config: margin={config.margin}, uncertainty_weight={config.uncertainty_weight}, loss_scale={config.loss_scale}")
     print()
     
     # Test multiple runs to see the range

@@ -21,6 +21,7 @@ class BayesianTripletConfig:
     min_uncertainty: float = 1e-6
     max_uncertainty: float = 1.0
     temperature: float = 1.0
+    loss_scale: float = 10.0  # Scaling factor for loss magnitude
     adaptive_margin: bool = True
     uncertainty_regularization: bool = True
     triplet_mining: str = 'hardest'  # 'hardest', 'semihard', 'all'
@@ -324,9 +325,9 @@ class BayesianTripletLoss(nn.Module):
             uncertainty_weight = 1.0 / (1.0 + torch.max(u_pos, u_neg))
             loss = base_loss * uncertainty_weight
         
-        # Scale the loss to ensure it's in the expected range (10-15 initially)
+        # Scale the loss to ensure it's in the expected range
         # This scaling factor helps maintain the expected loss magnitude
-        loss = loss * 10.0  # Scale up to expected range
+        loss = loss * self.config.loss_scale
         
         # Apply temperature scaling
         loss = loss / self.config.temperature
@@ -480,8 +481,9 @@ class TraditionalTripletLoss(nn.Module):
 if __name__ == "__main__":
     # Test the Bayesian Triplet Loss
     config = BayesianTripletConfig(
-        margin=0.1,
-        uncertainty_weight=0.1,
+        margin=0.3,
+        uncertainty_weight=0.05,
+        loss_scale=10.0,
         adaptive_margin=True,
         triplet_mining='hardest',
         distance_metric='euclidean',
