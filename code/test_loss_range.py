@@ -46,12 +46,16 @@ def test_loss_range():
             components = loss_fn.get_loss_components(embeddings, uncertainties, labels)
             
             print(f"Run {run + 1}:")
-            print(f"  Total Loss: {components['total_loss'].item():.4f}")
-            print(f"  Uncertainty Reg: {components['uncertainty_regularization'].item():.4f}")
-            print(f"  Mean Uncertainty: {components['mean_uncertainty'].item():.4f}")
+            total_loss = components['total_loss']
+            uncertainty_reg = components['uncertainty_regularization']
+            mean_uncertainty = components['mean_uncertainty']
+            
+            print(f"  Total Loss: {total_loss.item() if isinstance(total_loss, torch.Tensor) else total_loss:.4f}")
+            print(f"  Uncertainty Reg: {uncertainty_reg.item() if isinstance(uncertainty_reg, torch.Tensor) else uncertainty_reg:.4f}")
+            print(f"  Mean Uncertainty: {mean_uncertainty.item() if isinstance(mean_uncertainty, torch.Tensor) else mean_uncertainty:.4f}")
             
             # Check if loss is in expected range
-            loss_value = components['total_loss'].item()
+            loss_value = total_loss.item() if isinstance(total_loss, torch.Tensor) else total_loss
             if 5.0 <= loss_value <= 20.0:
                 print("  ✅ Loss is in expected range (5-20)")
             else:
