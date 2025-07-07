@@ -323,18 +323,34 @@ class BayesianTripletLoss(nn.Module):
         Returns:
             Regularization loss
         """
+        # Ensure uncertainties are within bounds and not too small
+        uncertainties = torch.clamp(uncertainties, 
+                                  min=self.config.min_uncertainty,
+                                  max=self.config.max_uncertainty)
+        
         # Encourage reasonable uncertainty levels
         # Penalize too high or too low uncertainties
         mean_uncertainty = torch.mean(uncertainties)
         target_uncertainty = (self.config.min_uncertainty + self.config.max_uncertainty) / 2.0
         
-        # KL divergence from target uncertainty
-        kl_div = torch.mean(uncertainties * torch.log(uncertainties / target_uncertainty + 1e-8))
+        # Use a more stable regularization approach
+        # Penalize deviations from target uncertainty
+        uncertainty_variance = torch.var(uncertainties)
+        mean_deviation = torch.abs(mean_uncertainty - target_uncertainty)
         
-        # Entropy regularization to encourage exploration
-        entropy = -torch.mean(uncertainties * torch.log(uncertainties + 1e-8))
+        # Encourage diversity in uncertainties (but not too much)
+        diversity_penalty = torch.relu(uncertainty_variance - 0.1)
         
-        return kl_div - 0.1 * entropy
+        # Penalize very low uncertainties (encourage exploration)
+        low_uncertainty_penalty = torch.relu(0.01 - mean_uncertainty)
+        
+        # Penalize very high uncertainties (encourage confidence)
+        high_uncertainty_penalty = torch.relu(mean_uncertainty - 0.5)
+        
+        regularization = mean_deviation + 0.1 * diversity_penalty + \
+                        0.1 * low_uncertainty_penalty + 0.1 * high_uncertainty_penalty
+        
+        return regularization
     
     def get_loss_components(self, embeddings: torch.Tensor, 
                           uncertainties: torch.Tensor,
@@ -350,19 +366,24 @@ class BayesianTripletLoss(nn.Module):
         Returns:
             Dictionary containing loss components
         """
+        # Ensure uncertainties are valid
+        uncertainties_safe = torch.clamp(uncertainties, 
+                                       min=self.config.min_uncertainty,
+                                       max=self.config.max_uncertainty)
+        
         # Compute main loss
-        total_loss = self.forward(embeddings, uncertainties, labels)
+        total_loss = self.forward(embeddings, uncertainties_safe, labels)
         
         # Compute uncertainty regularization separately
-        uncertainties_clamped = torch.clamp(uncertainties, 
-                                          min=self.config.min_uncertainty,
-                                          max=self.config.max_uncertainty)
-        uncertainty_reg = self._compute_uncertainty_regularization(uncertainties_clamped)
+        uncertainty_reg = self._compute_uncertainty_regularization(uncertainties_safe)
+        
+        # Compute mean uncertainty safely
+        mean_uncertainty = torch.mean(uncertainties_safe)
         
         return {
             'total_loss': total_loss,
             'uncertainty_regularization': uncertainty_reg,
-            'mean_uncertainty': torch.mean(uncertainties),
+            'mean_uncertainty': mean_uncertainty,
             'batch_size': embeddings.size(0)
         }
 
