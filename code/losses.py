@@ -64,7 +64,8 @@ class Statistical_Proxy_Anchor(torch.nn.Module):
     This is a simplified version that avoids complex statistical computations
     that can lead to NaN values.
     """
-    def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, stat_weight=0.01):
+    def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, stat_weight=0.01, 
+                 ema_decay=0.9, stat_adjust_weight=0.15):
         torch.nn.Module.__init__(self)
         
         # Proxy Anchor Initialization
@@ -80,6 +81,8 @@ class Statistical_Proxy_Anchor(torch.nn.Module):
         self.mrg = mrg
         self.alpha = alpha
         self.stat_weight = stat_weight
+        self.ema_decay = ema_decay  # EMA decay rate (0.9 = 90% old, 10% new)
+        self.stat_adjust_weight = stat_adjust_weight  # Weight for statistical adjustment
         
     def forward(self, X, T):
         """
@@ -121,7 +124,7 @@ class Statistical_Proxy_Anchor(torch.nn.Module):
                 var_weight = 1.0 / (1.0 + class_var.mean())
                 
                 # Combined adjustment
-                stat_adjustment[:, i] = center_sim * var_weight * 0.15  # Increased weight
+                stat_adjustment[:, i] = center_sim * var_weight * self.stat_adjust_weight
         
         # Combine similarities
         combined_sim = cos + stat_adjustment
@@ -156,16 +159,6 @@ class Statistical_Proxy_Anchor(torch.nn.Module):
         
         return total_loss
 
-    def get_variance_stats(self):
-        """
-        Get variance statistics for analysis
-        """
-        return {
-            'mean_variance': torch.mean(self.class_variances).item(),
-            'max_variance': torch.max(self.class_variances).item(),
-            'min_variance': torch.min(self.class_variances).item(),
-            'std_variance': torch.std(self.class_variances).item()
-        }
 
     def update_centers(self, X, T):
         """
@@ -181,12 +174,12 @@ class Statistical_Proxy_Anchor(torch.nn.Module):
                     class_center = class_embeddings.mean(dim=0)
                     class_var = class_embeddings.var(dim=0, unbiased=False)
                     
-                    # Update center
-                    new_center = 0.9 * self.class_centers[i] + 0.1 * class_center
+                    # Update center with configurable EMA
+                    new_center = self.ema_decay * self.class_centers[i] + (1 - self.ema_decay) * class_center
                     self.class_centers[i].copy_(new_center)
                     
-                    # Update variance tracking
-                    new_var = 0.9 * self.class_variances[i] + 0.1 * class_var
+                    # Update variance tracking with configurable EMA
+                    new_var = self.ema_decay * self.class_variances[i] + (1 - self.ema_decay) * class_var
                     self.class_variances[i].copy_(new_var)
 
     
