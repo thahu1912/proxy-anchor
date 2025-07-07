@@ -77,10 +77,15 @@ class BayesianTripletLoss(nn.Module):
         # Input validation
         self._validate_inputs(embeddings, uncertainties, labels)
         
-        # Normalize uncertainties
+        # Normalize uncertainties and ensure they are valid
         uncertainties = torch.clamp(uncertainties, 
                                   min=self.config.min_uncertainty,
                                   max=self.config.max_uncertainty)
+        
+        # Check for NaN or inf values and replace them
+        uncertainties = torch.where(torch.isnan(uncertainties) | torch.isinf(uncertainties),
+                                  torch.full_like(uncertainties, self.config.min_uncertainty),
+                                  uncertainties)
         
         # Compute pairwise distances with uncertainty
         distances, distance_uncertainties = self._compute_uncertainty_aware_distances(
@@ -115,6 +120,10 @@ class BayesianTripletLoss(nn.Module):
             total_loss = main_loss + self.config.uncertainty_weight * uncertainty_reg
         else:
             total_loss = main_loss
+        
+        # Final safety check for NaN or inf values
+        if torch.isnan(total_loss) or torch.isinf(total_loss):
+            total_loss = torch.zeros(1, requires_grad=True, device=self.device)
             
         return total_loss
     
@@ -149,20 +158,23 @@ class BayesianTripletLoss(nn.Module):
             # Compute Euclidean distances
             distances = torch.cdist(embeddings, embeddings, p=2)
             
+            # Add small epsilon to avoid numerical issues
+            distances = distances + 1e-8
+            
             # Compute uncertainty in distances
             # For Euclidean distance, uncertainty propagates as:
             # σ_d² = Σ(∂d/∂x_i)² * σ_i²
             # where ∂d/∂x_i = (x_i - y_i) / d
             diff = embeddings.unsqueeze(1) - embeddings.unsqueeze(0)  # (batch, batch, dim)
-            distances_unsqueezed = distances.unsqueeze(-1) + 1e-8  # Avoid division by zero
+            distances_unsqueezed = distances.unsqueeze(-1)  # Avoid division by zero
             
-            # Compute partial derivatives
+            # Compute partial derivatives with numerical stability
             partial_derivs = diff / distances_unsqueezed  # (batch, batch, dim)
             
             # Propagate uncertainties
             uncertainties_unsqueezed = uncertainties.unsqueeze(1)  # (batch, 1, dim)
             distance_uncertainties = torch.sqrt(
-                torch.sum(partial_derivs**2 * uncertainties_unsqueezed**2, dim=-1)
+                torch.sum(partial_derivs**2 * uncertainties_unsqueezed**2, dim=-1) + 1e-8
             )
             
         elif self.config.distance_metric == 'cosine':
