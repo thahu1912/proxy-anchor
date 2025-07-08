@@ -227,7 +227,7 @@ class TripletLoss(nn.Module):
     def __init__(self, margin=0.1, **kwargs):
         super(TripletLoss, self).__init__()
         self.margin = margin
-        self.miner = miners.TripletMarginMiner(margin, type_of_triplets = 'semihard')
+        self.miner = miners.TripletMarginMiner(margin, type_of_triplets = 'hard')
         self.loss_func = losses.TripletMarginLoss(margin = self.margin)
         
     def forward(self, embeddings, labels):

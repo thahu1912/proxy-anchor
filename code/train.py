@@ -330,11 +330,15 @@ for epoch in range(0, args.nb_epochs):
         loss.backward()
         
         torch.nn.utils.clip_grad_value_(model.parameters(), 10)
-        if args.loss == 'Proxy_Anchor':
+        if args.loss in ['Proxy_Anchor', 'Statistical_Proxy_Anchor']:
             torch.nn.utils.clip_grad_value_(criterion.parameters(), 10)
 
         losses_per_epoch.append(loss.data.cpu().numpy())
         opt.step()
+        
+        # Update centers for Statistical Proxy Anchor
+        if args.loss == 'Statistical_Proxy_Anchor':
+            criterion.update_centers(m.detach(), y.squeeze().cuda().detach())
 
         pbar.set_description(
             'Train Epoch: {} [{}/{} ({:.0f}%)] Loss: {:.6f}'.format(
@@ -350,22 +354,25 @@ for epoch in range(0, args.nb_epochs):
         with torch.no_grad():
             print("**Evaluating...**")
             if args.dataset == 'Inshop':
-                Recalls = utils.evaluate_cos_Inshop(model, dl_query, dl_gallery)
+                Recalls, Precisions = utils.evaluate_cos_Inshop(model, dl_query, dl_gallery)
             elif args.dataset != 'SOP':
-                Recalls = utils.evaluate_cos(model, dl_ev)
+                Recalls, Precisions = utils.evaluate_cos(model, dl_ev)
             else:
-                Recalls = utils.evaluate_cos_SOP(model, dl_ev)
+                Recalls, Precisions = utils.evaluate_cos_SOP(model, dl_ev)
                 
         # Logging Evaluation Score
         if args.dataset == 'Inshop':
             for i, K in enumerate([1,10,20,30,40,50]):    
                 wandb.log({"R@{}".format(K): Recalls[i]}, step=epoch)
+                wandb.log({"P@{}".format(K): Precisions[i]}, step=epoch)
         elif args.dataset != 'SOP':
-            for i in range(6):
-                wandb.log({"R@{}".format(2**i): Recalls[i]}, step=epoch)
+            for i, K in enumerate([1, 2, 4, 8, 16, 32]):
+                wandb.log({"R@{}".format(K): Recalls[i]}, step=epoch)
+                wandb.log({"P@{}".format(K): Precisions[i]}, step=epoch)
         else:
-            for i in range(4):
-                wandb.log({"R@{}".format(10**i): Recalls[i]}, step=epoch)
+            for i, K in enumerate([1, 10, 100, 1000]):
+                wandb.log({"R@{}".format(K): Recalls[i]}, step=epoch)
+                wandb.log({"P@{}".format(K): Precisions[i]}, step=epoch)
         
         # Best model save
         if best_recall[0] < Recalls[0]:
@@ -380,10 +387,10 @@ for epoch in range(0, args.nb_epochs):
                     for i, K in enumerate([1,10,20,30,40,50]):    
                         f.write("Best Recall@{}: {:.4f}\n".format(K, best_recall[i] * 100))
                 elif args.dataset != 'SOP':
-                    for i in range(6):
-                        f.write("Best Recall@{}: {:.4f}\n".format(2**i, best_recall[i] * 100))
+                    for i, K in enumerate([1, 2, 4, 8, 16, 32]):
+                        f.write("Best Recall@{}: {:.4f}\n".format(K, best_recall[i] * 100))
                 else:
-                    for i in range(4):
-                        f.write("Best Recall@{}: {:.4f}\n".format(10**i, best_recall[i] * 100))
+                    for i, K in enumerate([1, 10, 100, 1000]):
+                        f.write("Best Recall@{}: {:.4f}\n".format(K, best_recall[i] * 100))
 
     
