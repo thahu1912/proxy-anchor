@@ -58,7 +58,11 @@ class Proxy_Anchor(torch.nn.Module):
         return loss
 
 class Uncertainty_Aware_Proxy_Anchor(torch.nn.Module):
-    def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, uncertainty_scale=1.0):
+    """
+    Proxy Anchor with variance constraint from CBMLLoss
+    Incorporates the variance regularization to control the distribution of similarities
+    """
+    def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, variance_weight=0.1, hyper_weight=0.5):
         torch.nn.Module.__init__(self)
         # Proxy Anchor Initialization
         self.proxies = torch.nn.Parameter(torch.randn(nb_classes, sz_embed).cuda())
@@ -68,159 +72,12 @@ class Uncertainty_Aware_Proxy_Anchor(torch.nn.Module):
         self.sz_embed = sz_embed
         self.mrg = mrg
         self.alpha = alpha
-        self.uncertainty_scale = uncertainty_scale
+        self.variance_weight = variance_weight
+        self.hyper_weight = hyper_weight
         
-    def forward(self, X, X_uncertainty, T):
+    def forward(self, X, T):
         P = self.proxies
-        
-        # Normalize embeddings and proxies
-        X_norm = l2_norm(X)
-        P_norm = l2_norm(P)
-        
-        # Calculate base cosine similarity
-        cos_base = F.linear(X_norm, P_norm)
-        
-        # Calculate uncertainty-weighted similarity
-        # Higher uncertainty = lower confidence = reduced similarity
-        uncertainty_weight = torch.exp(-self.uncertainty_scale * X_uncertainty.mean(dim=1, keepdim=True))
-        cos_weighted = cos_base * uncertainty_weight
-        
-        # Adaptive margin based on uncertainty
-        # Higher uncertainty = larger margin (more conservative)
-        adaptive_margin = self.mrg * (1 + X_uncertainty.mean(dim=1, keepdim=True))
-        
-        # Create one-hot encodings
-        P_one_hot = binarize(T=T, nb_classes=self.nb_classes)
-        N_one_hot = 1 - P_one_hot
-    
-        # Calculate exponential terms with adaptive margin
-        pos_exp = torch.exp(-self.alpha * (cos_weighted - adaptive_margin))
-        neg_exp = torch.exp(self.alpha * (cos_weighted + adaptive_margin))
 
-        # Find valid proxies
-        with_pos_proxies = torch.nonzero(P_one_hot.sum(dim=0) != 0).squeeze(dim=1)
-        num_valid_proxies = len(with_pos_proxies)
-        
-        # Calculate similarity sums
-        P_sim_sum = torch.where(P_one_hot == 1, pos_exp, torch.zeros_like(pos_exp)).sum(dim=0) 
-        N_sim_sum = torch.where(N_one_hot == 1, neg_exp, torch.zeros_like(neg_exp)).sum(dim=0)
-        
-        # Main loss terms
-        pos_term = torch.log(1 + P_sim_sum).sum() / num_valid_proxies
-        neg_term = torch.log(1 + N_sim_sum).sum() / self.nb_classes
-        
-        # Uncertainty regularization term
-        uncertainty_reg = torch.mean(X_uncertainty) * 0.01
-        
-        loss = pos_term + neg_term + uncertainty_reg
-        
-        return loss
-
-class Confidence_Weighted_Proxy_Anchor(torch.nn.Module):
-    """
-    Confidence-Weighted Proxy Anchor Loss
-    
-    This implementation uses a completely different approach:
-    - Uses confidence-based weighting instead of uncertainty
-    - Implements temperature scaling for similarity
-    - Uses entropy-based regularization
-    """
-    def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, temperature=1.0, confidence_weight=0.1):
-        torch.nn.Module.__init__(self)
-        # Proxy Anchor Initialization
-        self.proxies = torch.nn.Parameter(torch.randn(nb_classes, sz_embed).cuda())
-        nn.init.kaiming_normal_(self.proxies, mode='fan_out')
-
-        self.nb_classes = nb_classes
-        self.sz_embed = sz_embed
-        self.mrg = mrg
-        self.alpha = alpha
-        self.temperature = temperature
-        self.confidence_weight = confidence_weight
-        
-    def forward(self, X, X_confidence, T):
-        P = self.proxies
-        
-        # Normalize embeddings and proxies
-        X_norm = l2_norm(X)
-        P_norm = l2_norm(P)
-        
-        # Calculate cosine similarity with temperature scaling
-        cos = F.linear(X_norm, P_norm) / self.temperature
-        
-        # Apply confidence weighting
-        # Higher confidence = higher weight
-        confidence_weight = X_confidence.mean(dim=1, keepdim=True)
-        cos_weighted = cos * confidence_weight
-        
-        # Create one-hot encodings
-        P_one_hot = binarize(T=T, nb_classes=self.nb_classes)
-        N_one_hot = 1 - P_one_hot
-    
-        # Calculate exponential terms
-        pos_exp = torch.exp(-self.alpha * (cos_weighted - self.mrg))
-        neg_exp = torch.exp(self.alpha * (cos_weighted + self.mrg))
-
-        # Find valid proxies
-        with_pos_proxies = torch.nonzero(P_one_hot.sum(dim=0) != 0).squeeze(dim=1)
-        num_valid_proxies = len(with_pos_proxies)
-        
-        # Calculate similarity sums
-        P_sim_sum = torch.where(P_one_hot == 1, pos_exp, torch.zeros_like(pos_exp)).sum(dim=0) 
-        N_sim_sum = torch.where(N_one_hot == 1, neg_exp, torch.zeros_like(neg_exp)).sum(dim=0)
-        
-        # Main loss terms
-        pos_term = torch.log(1 + P_sim_sum).sum() / num_valid_proxies
-        neg_term = torch.log(1 + N_sim_sum).sum() / self.nb_classes
-        
-        # Confidence regularization (encourage high confidence)
-        confidence_reg = -torch.mean(X_confidence) * self.confidence_weight
-        
-        loss = pos_term + neg_term + confidence_reg
-        
-        return loss
-
-class Bayesian_Proxy_Anchor(torch.nn.Module):
-    """
-    Uncertainty-aware Bayesian Proxy Anchor Loss
-    
-    This implementation extends the original Proxy Anchor loss with uncertainty estimation
-    by modeling both embeddings and proxies as Gaussian distributions with learnable variances.
-    """
-    def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, uncertainty_weight=0.1, 
-                 min_uncertainty=1e-6, max_uncertainty=1.0):
-        torch.nn.Module.__init__(self)
-        
-        # Proxy Anchor Initialization (mean)
-        self.proxies = torch.nn.Parameter(torch.randn(nb_classes, sz_embed).cuda())
-        nn.init.kaiming_normal_(self.proxies, mode='fan_out')
-        
-        # Proxy uncertainty initialization (variance)
-        self.proxy_uncertainties = torch.nn.Parameter(torch.ones(nb_classes, sz_embed).cuda() * 0.1)
-        nn.init.constant_(self.proxy_uncertainties, 0.1)
-        
-        self.nb_classes = nb_classes
-        self.sz_embed = sz_embed
-        self.mrg = mrg
-        self.alpha = alpha
-        self.uncertainty_weight = uncertainty_weight
-        self.min_uncertainty = min_uncertainty
-        self.max_uncertainty = max_uncertainty
-        
-    def forward(self, X, X_uncertainty, T):
-        """
-        Forward pass for Bayesian Proxy Anchor Loss
-        
-        Args:
-            X: Embeddings (batch_size, sz_embed)
-            X_uncertainty: Embedding uncertainties (batch_size, sz_embed)
-            T: Labels (batch_size,)
-        """
-        P = self.proxies
-        P_uncertainty = torch.clamp(self.proxy_uncertainties, 
-                                   min=self.min_uncertainty, 
-                                   max=self.max_uncertainty)
-        
         # Normalize embeddings and proxies
         X_norm = l2_norm(X)
         P_norm = l2_norm(P)
@@ -228,44 +85,50 @@ class Bayesian_Proxy_Anchor(torch.nn.Module):
         # Calculate cosine similarity
         cos = F.linear(X_norm, P_norm)
         
-        # Calculate uncertainty-aware similarity
-        # Combine embedding and proxy uncertainties
-        total_uncertainty = X_uncertainty.unsqueeze(1) + P_uncertainty.unsqueeze(0)  # (batch_size, nb_classes, sz_embed)
-        
-        # Uncertainty-weighted similarity
-        uncertainty_weight = 1.0 / (1.0 + total_uncertainty.mean(dim=-1))  # (batch_size, nb_classes)
-        uncertainty_aware_cos = cos * uncertainty_weight
-        
         # Create one-hot encodings
         P_one_hot = binarize(T=T, nb_classes=self.nb_classes)
         N_one_hot = 1 - P_one_hot
-        
-        # Calculate exponential terms with uncertainty adjustment
-        pos_exp = torch.exp(-self.alpha * (uncertainty_aware_cos - self.mrg))
-        neg_exp = torch.exp(self.alpha * (uncertainty_aware_cos + self.mrg))
-        
+    
+        # Calculate exponential terms
+        pos_exp = torch.exp(-self.alpha * (cos - self.mrg))
+        neg_exp = torch.exp(self.alpha * (cos + self.mrg))
+
         # Find valid proxies
         with_pos_proxies = torch.nonzero(P_one_hot.sum(dim=0) != 0).squeeze(dim=1)
-        num_valid_proxies = len(with_pos_proxies)
+        num_valid_proxies = len(with_pos_proxies) if len(with_pos_proxies) > 0 else 1
         
         # Calculate similarity sums
-        P_sim_sum = torch.where(P_one_hot == 1, pos_exp, torch.zeros_like(pos_exp)).sum(dim=0)
+        P_sim_sum = torch.where(P_one_hot == 1, pos_exp, torch.zeros_like(pos_exp)).sum(dim=0) 
         N_sim_sum = torch.where(N_one_hot == 1, neg_exp, torch.zeros_like(neg_exp)).sum(dim=0)
         
-        # Main loss terms
+        # Main Proxy Anchor loss terms
         pos_term = torch.log(1 + P_sim_sum).sum() / num_valid_proxies
         neg_term = torch.log(1 + N_sim_sum).sum() / self.nb_classes
         
-        # Uncertainty regularization terms
-        embedding_uncertainty_reg = torch.mean(X_uncertainty)
-        proxy_uncertainty_reg = torch.mean(P_uncertainty)
+        # Variance constraint 
+        pos_similarities = torch.where(P_one_hot == 1, cos, torch.zeros_like(cos))
+        neg_similarities = torch.where(N_one_hot == 1, cos, torch.zeros_like(cos))
         
-        # Total loss
-        main_loss = pos_term + neg_term
-        uncertainty_reg = self.uncertainty_weight * (embedding_uncertainty_reg + proxy_uncertainty_reg)
-        loss = main_loss + uncertainty_reg
+    
+        pos_mean = torch.sum(pos_similarities, dim=1, keepdim=True) / (torch.sum(P_one_hot, dim=1, keepdim=True) + 1e-8)
+        neg_mean = torch.sum(neg_similarities, dim=1, keepdim=True) / (torch.sum(N_one_hot, dim=1, keepdim=True) + 1e-8)
+        
+        # Weighted mean across positive and negative similarities
+        weighted_mean = self.hyper_weight * pos_mean + (1 - self.hyper_weight) * neg_mean
+        
+        # Variance constraint: penalize high variance in negative similarities
+        neg_variance = torch.mean(torch.pow(neg_similarities - weighted_mean, 2))
+        
+        # Combine Proxy Anchor loss with variance constraint
+        proxy_loss = pos_term + neg_term
+        variance_reg = self.variance_weight * neg_variance
+        
+        loss = proxy_loss + variance_reg
         
         return loss
+
+
+
     
 # We use PyTorch Metric Learning library for the following codes.
 # Please refer to "https://github.com/KevinMusgrave/pytorch-metric-learning" for details.

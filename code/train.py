@@ -95,14 +95,11 @@ parser.add_argument('--remark', default = '',
     help = 'Any reamrk'
 )
 
-parser.add_argument('--uncertainty-weight', default = 0.1, type = float,
-    help = 'Uncertainty weight for Bayesian Proxy Anchor'
+parser.add_argument('--variance-weight', default = 0.1, type = float,
+    help = 'Variance weight for Proxy Anchor with Variance Constraint'
 )
-parser.add_argument('--min-uncertainty', default = 1e-6, type = float,
-    help = 'Minimum uncertainty value for Bayesian Proxy Anchor'
-)
-parser.add_argument('--max-uncertainty', default = 1.0, type = float,
-    help = 'Maximum uncertainty value for Bayesian Proxy Anchor'
+parser.add_argument('--hyper-weight', default = 0.5, type = float,
+    help = 'Hyper weight for Proxy Anchor with Variance Constraint'
 )
 args = parser.parse_args()
 
@@ -246,32 +243,14 @@ elif args.loss == 'Curriculum_Proxy_Anchor':
     criterion = losses.Curriculum_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha).cuda()
 elif args.loss == 'MultiScale_Proxy_Anchor':
     criterion = losses.MultiScale_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha).cuda()
-elif args.loss == 'Bayesian_Proxy_Anchor':
-    criterion = losses.Bayesian_Proxy_Anchor(
-        nb_classes = nb_classes, 
-        sz_embed = args.sz_embedding, 
-        mrg = args.mrg, 
-        alpha = args.alpha,
-        uncertainty_weight = args.uncertainty_weight,
-        min_uncertainty = args.min_uncertainty,
-        max_uncertainty = args.max_uncertainty
-    ).cuda()
 elif args.loss == 'Uncertainty_Aware_Proxy_Anchor':
     criterion = losses.Uncertainty_Aware_Proxy_Anchor(
         nb_classes = nb_classes, 
         sz_embed = args.sz_embedding, 
         mrg = args.mrg, 
         alpha = args.alpha,
-        uncertainty_scale = args.uncertainty_weight
-    ).cuda()
-elif args.loss == 'Confidence_Weighted_Proxy_Anchor':
-    criterion = losses.Confidence_Weighted_Proxy_Anchor(
-        nb_classes = nb_classes, 
-        sz_embed = args.sz_embedding, 
-        mrg = args.mrg, 
-        alpha = args.alpha,
-        temperature = 1.0,
-        confidence_weight = args.uncertainty_weight
+        variance_weight = args.variance_weight,
+        hyper_weight = args.hyper_weight
     ).cuda()
 else:
     raise ValueError(f"Unsupported loss function: {args.loss}")
@@ -282,7 +261,7 @@ param_groups = [
                  list(set(model.module.parameters()).difference(set(model.module.model.embedding.parameters())))},
     {'params': model.model.embedding.parameters() if args.gpu_id != -1 else model.module.model.embedding.parameters(), 'lr':float(args.lr) * 1},
 ]
-if args.loss in ['Proxy_Anchor', 'Curriculum_Proxy_Anchor', 'MultiScale_Proxy_Anchor', 'Bayesian_Proxy_Anchor', 'Uncertainty_Aware_Proxy_Anchor', 'Confidence_Weighted_Proxy_Anchor']:
+if args.loss in ['Proxy_Anchor', 'Uncertainty_Aware_Proxy_Anchor']:
     param_groups.append({'params': criterion.parameters(), 'lr':float(args.lr) * 100})
 elif args.loss == 'Proxy_NCA':
     param_groups.append({'params': criterion.parameters(), 'lr':float(args.lr)})
@@ -333,46 +312,14 @@ for epoch in range(0, args.nb_epochs):
     pbar = tqdm(enumerate(dl_tr))
 
     for batch_idx, (x, y) in pbar:                         
-        model_output = model(x.squeeze().cuda())
-        
-        # Handle different loss functions
-        if args.loss == 'Bayesian_Proxy_Anchor':
-            if isinstance(model_output, tuple):
-                m, m_uncertainty = model_output
-            else:
-                # If model doesn't return uncertainty, create dummy uncertainty
-                m = model_output
-                m_uncertainty = torch.ones_like(m) * 0.1  # Default uncertainty
-            loss = criterion(m, m_uncertainty, y.squeeze().cuda())
-        elif args.loss == 'Uncertainty_Aware_Proxy_Anchor':
-            if isinstance(model_output, tuple):
-                m, m_uncertainty = model_output
-            else:
-                # If model doesn't return uncertainty, create dummy uncertainty
-                m = model_output
-                m_uncertainty = torch.ones_like(m) * 0.1  # Default uncertainty
-            loss = criterion(m, m_uncertainty, y.squeeze().cuda())
-        elif args.loss == 'Confidence_Weighted_Proxy_Anchor':
-            if isinstance(model_output, tuple):
-                m, m_confidence = model_output
-            else:
-                # If model doesn't return confidence, create dummy confidence
-                m = model_output
-                m_confidence = torch.ones_like(m) * 0.9  # Default confidence
-            loss = criterion(m, m_confidence, y.squeeze().cuda())
-        else:
-            # For regular loss functions, just use the embeddings
-            if isinstance(model_output, tuple):
-                m = model_output[0]  # Take first element if tuple
-            else:
-                m = model_output
-            loss = criterion(m, y.squeeze().cuda())
+        m = model(x.squeeze().cuda())
+        loss = criterion(m, y.squeeze().cuda())
         
         opt.zero_grad()
         loss.backward()
         
         torch.nn.utils.clip_grad_value_(model.parameters(), 10)
-        if args.loss in ['Proxy_Anchor', 'Bayesian_Proxy_Anchor', 'Uncertainty_Aware_Proxy_Anchor', 'Confidence_Weighted_Proxy_Anchor']:
+        if args.loss in ['Proxy_Anchor', 'Uncertainty_Aware_Proxy_Anchor']:
             torch.nn.utils.clip_grad_value_(criterion.parameters(), 10)
 
         losses_per_epoch.append(loss.data.cpu().numpy())
