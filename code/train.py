@@ -1,4 +1,5 @@
 import torch, math, time, argparse, os
+import torch.nn as nn
 import random, dataset, utils, losses, net
 import numpy as np
 

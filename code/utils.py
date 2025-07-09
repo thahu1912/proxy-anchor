@@ -100,7 +100,7 @@ def f1_score(query_labels, cluster_labels):
     return F1
 
 def get_relevance_mask(shape, gt_labels, embeds_same_source, label_counts):
-    relevance_mask = np.zeros(shape=shape, dtype=np.int)
+    relevance_mask = np.zeros(shape=shape, dtype=int)
     for k, v in label_counts.items():
         matching_rows = np.where(gt_labels==k)[0]
         max_column = v-1 if embeds_same_source else v
@@ -231,7 +231,7 @@ def evaluate_cos(model, dataloader):
         print('MAP@R:',MAP)
         print('RP:',RP)
 
-    return F1, NMI, recall_all_k, MAP, RP
+    return recall_all_k, [F1, NMI, MAP, RP]  # Return recalls and other metrics as precisions
 
 def evaluate_cos_SOP(model, dataloader):
     torch.cuda.empty_cache()
@@ -272,7 +272,7 @@ def evaluate_cos_SOP(model, dataloader):
         print('MAP@R:',MAP)
         print('RP:',RP)
 
-    return F1, NMI, recall_all_k, MAP, RP
+    return recall_all_k, [F1, NMI, MAP, RP]  # Return recalls and other metrics as precisions
 
 def evaluate_cos_Inshop(model, query_dataloader, gallery_dataloader):
     """
