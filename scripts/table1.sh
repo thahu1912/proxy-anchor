@@ -2,7 +2,7 @@
 
 
 # Proxy_Anchor
-python train.py --gpu-id 0 \
+python /code/train.py --gpu-id 0 \
                 --loss Proxy_Anchor \
                 --model bn_inception \
                 --embedding-size 512 \
@@ -13,7 +13,7 @@ python train.py --gpu-id 0 \
                 --bn-freeze 1 \
                 --lr-decay-step 10
 
-python train.py --gpu-id 0 \
+python /code/train.py --gpu-id 0 \
                 --loss Proxy_Anchor \
                 --model bn_inception \
                 --embedding-size 512 \
@@ -24,7 +24,7 @@ python train.py --gpu-id 0 \
                 --bn-freeze 1 \
                 --lr-decay-step 10
 
-python train.py --gpu-id 0 \
+python /code/train.py --gpu-id 0 \
                 --loss Proxy_Anchor \
                 --model googlenet \
                 --embedding-size 512 \
@@ -37,7 +37,7 @@ python train.py --gpu-id 0 \
 
 
 # Uncertainty_Aware_Proxy_Anchor
-python train.py --gpu-id 0 \
+python /code/train.py --gpu-id 0 \
                 --loss Uncertainty_Aware_Proxy_Anchor \
                 --model bn_inception \
                 --embedding-size 512 \
@@ -48,7 +48,7 @@ python train.py --gpu-id 0 \
                 --bn-freeze 1 \
                 --lr-decay-step 10
 
-python train.py --gpu-id 0 \
+python /code/train.py --gpu-id 0 \
                 --loss Uncertainty_Aware_Proxy_Anchor \
                 --model resnet50 \
                 --embedding-size 512 \
@@ -59,7 +59,7 @@ python train.py --gpu-id 0 \
                 --bn-freeze 1 \
                 --lr-decay-step 10
 
-python train.py --gpu-id 0 \
+python /code/train.py --gpu-id 0 \
                 --loss Uncertainty_Aware_Proxy_Anchor \
                 --model googlenet \
                 --embedding-size 512 \
