@@ -113,7 +113,7 @@ if args.gpu_id != -1:
 LOG_DIR = args.LOG_DIR + '/logs_{}/{}_{}_embedding{}_alpha{}_mrg{}_{}_lr{}_batch{}{}'.format(args.dataset, args.model, args.loss, args.sz_embedding, args.alpha, 
                                                                                             args.mrg, args.optimizer, args.lr, args.sz_batch, args.remark)
 # Wandb Initialization
-wandb.init(project=args.dataset + '_ProxyAnchor', notes=LOG_DIR, name=args.loss)
+wandb.init(project=args.dataset + '_ProxyAnchor', notes=LOG_DIR, name=args.loss + '_' + args.model)
 wandb.config.update(args)
 
 os.chdir('../data/')
@@ -408,7 +408,6 @@ for epoch in range(0, args.nb_epochs):
                 wandb.log({"R@{}".format(K): Recalls[i]}, step=epoch)
                 wandb.log({"P@{}".format(K): Precisions[i]}, step=epoch)
         elif args.dataset != 'SOP':
-    
             k_values = [1, 2, 4, 8]
             for i, K in enumerate(k_values):
                 if i < len(Recalls):
