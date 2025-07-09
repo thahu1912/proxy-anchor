@@ -404,13 +404,19 @@ for epoch in range(0, args.nb_epochs):
                 wandb.log({"R@{}".format(K): Recalls[i]}, step=epoch)
                 wandb.log({"P@{}".format(K): Precisions[i]}, step=epoch)
         elif args.dataset != 'SOP':
-            for i, K in enumerate([1, 2, 4, 8, 16, 32]):
-                wandb.log({"R@{}".format(K): Recalls[i]}, step=epoch)
-                wandb.log({"P@{}".format(K): Precisions[i]}, step=epoch)
+            # For CUB dataset, the evaluation returns 4 values for k=[1,2,4,8]
+            k_values = [1, 2, 4, 8]
+            for i, K in enumerate(k_values):
+                if i < len(Recalls):
+                    wandb.log({"R@{}".format(K): Recalls[i]}, step=epoch)
+                    wandb.log({"P@{}".format(K): Precisions[i]}, step=epoch)
         else:
-            for i, K in enumerate([1, 10, 100, 1000]):
-                wandb.log({"R@{}".format(K): Recalls[i]}, step=epoch)
-                wandb.log({"P@{}".format(K): Precisions[i]}, step=epoch)
+            # For SOP dataset, the evaluation returns 3 values for k=[1,10,100]
+            k_values = [1, 10, 100]
+            for i, K in enumerate(k_values):
+                if i < len(Recalls):
+                    wandb.log({"R@{}".format(K): Recalls[i]}, step=epoch)
+                    wandb.log({"P@{}".format(K): Precisions[i]}, step=epoch)
         
         # Best model save
         if best_recall[0] < Recalls[0]:
@@ -425,10 +431,16 @@ for epoch in range(0, args.nb_epochs):
                     for i, K in enumerate([1,10,20,30,40,50]):    
                         f.write("Best Recall@{}: {:.4f}\n".format(K, best_recall[i] * 100))
                 elif args.dataset != 'SOP':
-                    for i, K in enumerate([1, 2, 4, 8, 16, 32]):
-                        f.write("Best Recall@{}: {:.4f}\n".format(K, best_recall[i] * 100))
+                    # For CUB dataset, the evaluation returns 4 values for k=[1,2,4,8]
+                    k_values = [1, 2, 4, 8]
+                    for i, K in enumerate(k_values):
+                        if i < len(best_recall):
+                            f.write("Best Recall@{}: {:.4f}\n".format(K, best_recall[i] * 100))
                 else:
-                    for i, K in enumerate([1, 10, 100, 1000]):
-                        f.write("Best Recall@{}: {:.4f}\n".format(K, best_recall[i] * 100))
+                    # For SOP dataset, the evaluation returns 3 values for k=[1,10,100]
+                    k_values = [1, 10, 100]
+                    for i, K in enumerate(k_values):
+                        if i < len(best_recall):
+                            f.write("Best Recall@{}: {:.4f}\n".format(K, best_recall[i] * 100))
 
     
