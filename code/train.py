@@ -112,7 +112,7 @@ if args.gpu_id != -1:
 LOG_DIR = args.LOG_DIR + '/logs_{}/{}_{}_embedding{}_alpha{}_mrg{}_{}_lr{}_batch{}{}'.format(args.dataset, args.model, args.loss, args.sz_embedding, args.alpha, 
                                                                                             args.mrg, args.optimizer, args.lr, args.sz_batch, args.remark)
 # Wandb Initialization
-wandb.init(project=args.dataset + '_ProxyAnchor', notes=LOG_DIR)
+wandb.init(project=args.dataset + '_ProxyAnchor', notes=LOG_DIR, name=args.loss)
 wandb.config.update(args)
 
 os.chdir('../data/')
