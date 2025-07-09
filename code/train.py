@@ -94,25 +94,14 @@ parser.add_argument('--remark', default = '',
     help = 'Any reamrk'
 )
 
-parser.add_argument('--ema-decay', default = 0.9, type = float,
-    help = 'EMA decay rate for Statistical Proxy Anchor'
+parser.add_argument('--uncertainty-weight', default = 0.1, type = float,
+    help = 'Uncertainty weight for Bayesian Proxy Anchor'
 )
-parser.add_argument('--stat-adjust-weight', default = 0.15, type = float,
-    help = 'Weight for statistical adjustment for Statistical Proxy Anchor'
+parser.add_argument('--min-uncertainty', default = 1e-6, type = float,
+    help = 'Minimum uncertainty value for Bayesian Proxy Anchor'
 )
-
-parser.add_argument('--stat-weight', default = 0.01, type = float,
-    help = 'Weight for statistical adjustment for Statistical Proxy Anchor'
-)
-
-parser.add_argument('--base-margin', default = 0.1, type = float,
-    help = 'Base margin for Adaptive Triplet Loss'
-)
-parser.add_argument('--hard-mining', default = True, type = bool,
-    help = 'Hard mining for Adaptive Triplet Loss'
-)
-parser.add_argument('--adaptive-weight', default = 0.1, type = float,
-    help = 'Adaptive weight for Adaptive Triplet Loss'
+parser.add_argument('--max-uncertainty', default = 1.0, type = float,
+    help = 'Maximum uncertainty value for Bayesian Proxy Anchor'
 )
 args = parser.parse_args()
 
@@ -253,12 +242,37 @@ elif args.loss == 'NPair':
     criterion = losses.NPairLoss().cuda()
 elif args.loss == 'Statistical_Proxy_Anchor':
     criterion = losses.Statistical_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha).cuda()
-elif args.loss == 'Adaptive_Proxy_Anchor':
-    criterion = losses.Adaptive_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha).cuda()
 elif args.loss == 'Curriculum_Proxy_Anchor':
     criterion = losses.Curriculum_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha).cuda()
 elif args.loss == 'MultiScale_Proxy_Anchor':
     criterion = losses.MultiScale_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha).cuda()
+elif args.loss == 'Bayesian_Proxy_Anchor':
+    criterion = losses.Bayesian_Proxy_Anchor(
+        nb_classes = nb_classes, 
+        sz_embed = args.sz_embedding, 
+        mrg = args.mrg, 
+        alpha = args.alpha,
+        uncertainty_weight = args.uncertainty_weight,
+        min_uncertainty = args.min_uncertainty,
+        max_uncertainty = args.max_uncertainty
+    ).cuda()
+elif args.loss == 'Uncertainty_Aware_Proxy_Anchor':
+    criterion = losses.Uncertainty_Aware_Proxy_Anchor(
+        nb_classes = nb_classes, 
+        sz_embed = args.sz_embedding, 
+        mrg = args.mrg, 
+        alpha = args.alpha,
+        uncertainty_scale = args.uncertainty_weight
+    ).cuda()
+elif args.loss == 'Confidence_Weighted_Proxy_Anchor':
+    criterion = losses.Confidence_Weighted_Proxy_Anchor(
+        nb_classes = nb_classes, 
+        sz_embed = args.sz_embedding, 
+        mrg = args.mrg, 
+        alpha = args.alpha,
+        temperature = 1.0,
+        confidence_weight = args.uncertainty_weight
+    ).cuda()
 elif args.loss == 'AdaptiveTripletLoss':
     criterion = losses.AdaptiveTripletLoss(base_margin=args.mrg, hard_mining=True, adaptive_weight=args.adaptive_weight, stat_weight=args.stat_weight, ema_decay=args.ema_decay).cuda()
 else:
@@ -270,7 +284,7 @@ param_groups = [
                  list(set(model.module.parameters()).difference(set(model.module.model.embedding.parameters())))},
     {'params': model.model.embedding.parameters() if args.gpu_id != -1 else model.module.model.embedding.parameters(), 'lr':float(args.lr) * 1},
 ]
-if args.loss in ['Proxy_Anchor',  'Statistical_Proxy_Anchor', 'Adaptive_Proxy_Anchor', 'Curriculum_Proxy_Anchor', 'MultiScale_Proxy_Anchor', 'Focal_Proxy_Anchor', 'Contrastive_Proxy_Anchor', 'Covariance_Bayesian_Proxy_Anchor']:
+if args.loss in ['Proxy_Anchor',  'Statistical_Proxy_Anchor', 'Adaptive_Proxy_Anchor', 'Curriculum_Proxy_Anchor', 'MultiScale_Proxy_Anchor', 'Bayesian_Proxy_Anchor', 'Uncertainty_Aware_Proxy_Anchor', 'Confidence_Weighted_Proxy_Anchor', 'Focal_Proxy_Anchor', 'Contrastive_Proxy_Anchor', 'Covariance_Bayesian_Proxy_Anchor']:
     param_groups.append({'params': criterion.parameters(), 'lr':float(args.lr) * 100})
 elif args.loss == 'Proxy_NCA':
     param_groups.append({'params': criterion.parameters(), 'lr':float(args.lr)})
@@ -324,22 +338,34 @@ for epoch in range(0, args.nb_epochs):
         m = model(x.squeeze().cuda())
         
         # Handle different loss functions
-        loss = criterion(m, y.squeeze().cuda())
+        if args.loss == 'Bayesian_Proxy_Anchor':
+            
+            m, m_uncertainty = model(x.squeeze().cuda())  
+            
+            loss = criterion(m, m_uncertainty, y.squeeze().cuda())
+        elif args.loss == 'Uncertainty_Aware_Proxy_Anchor':
+            
+            m, m_uncertainty = model(x.squeeze().cuda())  
+            
+            loss = criterion(m, m_uncertainty, y.squeeze().cuda())
+        elif args.loss == 'Confidence_Weighted_Proxy_Anchor':
+            
+            m, m_confidence = model(x.squeeze().cuda())  
+            
+            loss = criterion(m, m_confidence, y.squeeze().cuda())
+        else:
+            loss = criterion(m, y.squeeze().cuda())
         
         opt.zero_grad()
         loss.backward()
         
         torch.nn.utils.clip_grad_value_(model.parameters(), 10)
-        if args.loss in ['Proxy_Anchor', 'Statistical_Proxy_Anchor']:
+        if args.loss in ['Proxy_Anchor', 'Bayesian_Proxy_Anchor', 'Uncertainty_Aware_Proxy_Anchor', 'Confidence_Weighted_Proxy_Anchor']:
             torch.nn.utils.clip_grad_value_(criterion.parameters(), 10)
 
         losses_per_epoch.append(loss.data.cpu().numpy())
         opt.step()
         
-        # Update centers for Statistical Proxy Anchor
-        if args.loss == 'Statistical_Proxy_Anchor':
-            criterion.update_centers(m.detach(), y.squeeze().cuda().detach())
-
         pbar.set_description(
             'Train Epoch: {} [{}/{} ({:.0f}%)] Loss: {:.6f}'.format(
                 epoch, batch_idx + 1, len(dl_tr),
