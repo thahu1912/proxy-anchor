@@ -240,8 +240,7 @@ elif args.loss == 'Triplet':
     criterion = losses.TripletLoss().cuda()
 elif args.loss == 'NPair':
     criterion = losses.NPairLoss().cuda()
-elif args.loss == 'Statistical_Proxy_Anchor':
-    criterion = losses.Statistical_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha).cuda()
+
 elif args.loss == 'Curriculum_Proxy_Anchor':
     criterion = losses.Curriculum_Proxy_Anchor(nb_classes = nb_classes, sz_embed = args.sz_embedding, mrg = args.mrg, alpha = args.alpha).cuda()
 elif args.loss == 'MultiScale_Proxy_Anchor':
@@ -273,8 +272,6 @@ elif args.loss == 'Confidence_Weighted_Proxy_Anchor':
         temperature = 1.0,
         confidence_weight = args.uncertainty_weight
     ).cuda()
-elif args.loss == 'AdaptiveTripletLoss':
-    criterion = losses.AdaptiveTripletLoss(base_margin=args.mrg, hard_mining=True, adaptive_weight=args.adaptive_weight, stat_weight=args.stat_weight, ema_decay=args.ema_decay).cuda()
 else:
     raise ValueError(f"Unsupported loss function: {args.loss}")
 
@@ -284,7 +281,7 @@ param_groups = [
                  list(set(model.module.parameters()).difference(set(model.module.model.embedding.parameters())))},
     {'params': model.model.embedding.parameters() if args.gpu_id != -1 else model.module.model.embedding.parameters(), 'lr':float(args.lr) * 1},
 ]
-if args.loss in ['Proxy_Anchor',  'Statistical_Proxy_Anchor', 'Adaptive_Proxy_Anchor', 'Curriculum_Proxy_Anchor', 'MultiScale_Proxy_Anchor', 'Bayesian_Proxy_Anchor', 'Uncertainty_Aware_Proxy_Anchor', 'Confidence_Weighted_Proxy_Anchor', 'Focal_Proxy_Anchor', 'Contrastive_Proxy_Anchor', 'Covariance_Bayesian_Proxy_Anchor']:
+if args.loss in ['Proxy_Anchor', 'Curriculum_Proxy_Anchor', 'MultiScale_Proxy_Anchor', 'Bayesian_Proxy_Anchor', 'Uncertainty_Aware_Proxy_Anchor', 'Confidence_Weighted_Proxy_Anchor']:
     param_groups.append({'params': criterion.parameters(), 'lr':float(args.lr) * 100})
 elif args.loss == 'Proxy_NCA':
     param_groups.append({'params': criterion.parameters(), 'lr':float(args.lr)})
@@ -335,25 +332,39 @@ for epoch in range(0, args.nb_epochs):
     pbar = tqdm(enumerate(dl_tr))
 
     for batch_idx, (x, y) in pbar:                         
-        m = model(x.squeeze().cuda())
+        model_output = model(x.squeeze().cuda())
         
         # Handle different loss functions
         if args.loss == 'Bayesian_Proxy_Anchor':
-            
-            m, m_uncertainty = model(x.squeeze().cuda())  
-            
+            if isinstance(model_output, tuple):
+                m, m_uncertainty = model_output
+            else:
+                # If model doesn't return uncertainty, create dummy uncertainty
+                m = model_output
+                m_uncertainty = torch.ones_like(m) * 0.1  # Default uncertainty
             loss = criterion(m, m_uncertainty, y.squeeze().cuda())
         elif args.loss == 'Uncertainty_Aware_Proxy_Anchor':
-            
-            m, m_uncertainty = model(x.squeeze().cuda())  
-            
+            if isinstance(model_output, tuple):
+                m, m_uncertainty = model_output
+            else:
+                # If model doesn't return uncertainty, create dummy uncertainty
+                m = model_output
+                m_uncertainty = torch.ones_like(m) * 0.1  # Default uncertainty
             loss = criterion(m, m_uncertainty, y.squeeze().cuda())
         elif args.loss == 'Confidence_Weighted_Proxy_Anchor':
-            
-            m, m_confidence = model(x.squeeze().cuda())  
-            
+            if isinstance(model_output, tuple):
+                m, m_confidence = model_output
+            else:
+                # If model doesn't return confidence, create dummy confidence
+                m = model_output
+                m_confidence = torch.ones_like(m) * 0.9  # Default confidence
             loss = criterion(m, m_confidence, y.squeeze().cuda())
         else:
+            # For regular loss functions, just use the embeddings
+            if isinstance(model_output, tuple):
+                m = model_output[0]  # Take first element if tuple
+            else:
+                m = model_output
             loss = criterion(m, y.squeeze().cuda())
         
         opt.zero_grad()

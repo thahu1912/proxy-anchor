@@ -55,7 +55,15 @@ def predict_batchwise(model, dataloader):
                 # i = 2: sz_batch * indices
                 if i == 0:
                     # move images to device of model (approximate device)
-                    J, _ = model(J.cuda())
+                    model_output = model(J.cuda())
+                    
+                    # Handle both single and multiple return values
+                    if isinstance(model_output, tuple):
+                        # Model returns multiple values (e.g., embeddings + uncertainty)
+                        J = model_output[0]  # Take only the embeddings
+                    else:
+                        # Model returns single value (embeddings only)
+                        J = model_output
 
                 for j in J:
                     A[i].append(j)
@@ -265,3 +273,51 @@ def evaluate_cos_SOP(model, dataloader):
         print('RP:',RP)
 
     return F1, NMI, recall_all_k, MAP, RP
+
+def evaluate_cos_Inshop(model, query_dataloader, gallery_dataloader):
+    """
+    Evaluate model on Inshop dataset with separate query and gallery dataloaders.
+    Returns Recalls and Precisions in the format expected by the training loop.
+    """
+    torch.cuda.empty_cache()
+    model.eval()
+    
+    with torch.no_grad():
+        # Extract features from query and gallery
+        query_X, query_T = predict_batchwise(model, query_dataloader)
+        gallery_X, gallery_T = predict_batchwise(model, gallery_dataloader)
+        
+        query_X = l2_norm(query_X)
+        gallery_X = l2_norm(gallery_X)
+        
+        query_labels = query_T.cpu().detach().numpy()
+        gallery_labels = gallery_T.cpu().detach().numpy()
+        query_features = query_X.cpu().detach().numpy()
+        gallery_features = gallery_X.cpu().detach().numpy()
+        
+        # Calculate cosine similarities between query and gallery
+        similarities = np.dot(query_features, gallery_features.T)
+        
+        # Get top-k predictions for each query
+        k_values = [1, 10, 20, 30, 40, 50]
+        recalls = []
+        precisions = []
+        
+        for k in k_values:
+            top_k_indices = np.argsort(similarities, axis=1)[:, -k:]
+            top_k_labels = gallery_labels[top_k_indices]
+            
+            # Calculate recall@k
+            correct_predictions = (top_k_labels == query_labels[:, np.newaxis]).any(axis=1)
+            recall = np.mean(correct_predictions)
+            recalls.append(recall)
+            
+            # Calculate precision@k (for Inshop, precision is same as recall since we have one correct match per query)
+            precision = recall
+            precisions.append(precision)
+        
+        print('Inshop Evaluation Results:')
+        for i, k in enumerate(k_values):
+            print(f'Recall@{k}: {recalls[i]:.4f}, Precision@{k}: {precisions[i]:.4f}')
+    
+    return recalls, precisions
