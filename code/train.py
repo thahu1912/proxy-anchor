@@ -394,9 +394,13 @@ for epoch in range(0, args.nb_epochs):
             if args.dataset == 'Inshop':
                 Recalls, Precisions = utils.evaluate_cos_Inshop(model, dl_query, dl_gallery)
             elif args.dataset != 'SOP':
-                Recalls, Precisions = utils.evaluate_cos(model, dl_ev)
+                Recalls, OtherMetrics = utils.evaluate_cos(model, dl_ev)
+                # For CUB dataset, we only have recalls, no separate precisions
+                Precisions = Recalls  # Use recalls as precisions for logging
             else:
-                Recalls, Precisions = utils.evaluate_cos_SOP(model, dl_ev)
+                Recalls, OtherMetrics = utils.evaluate_cos_SOP(model, dl_ev)
+                # For SOP dataset, we only have recalls, no separate precisions
+                Precisions = Recalls  # Use recalls as precisions for logging
                 
         # Logging Evaluation Score
         if args.dataset == 'Inshop':
@@ -404,7 +408,7 @@ for epoch in range(0, args.nb_epochs):
                 wandb.log({"R@{}".format(K): Recalls[i]}, step=epoch)
                 wandb.log({"P@{}".format(K): Precisions[i]}, step=epoch)
         elif args.dataset != 'SOP':
-            # For CUB dataset, the evaluation returns 4 values for k=[1,2,4,8]
+    
             k_values = [1, 2, 4, 8]
             for i, K in enumerate(k_values):
                 if i < len(Recalls):
