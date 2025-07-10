@@ -265,8 +265,7 @@ elif args.loss == 'VonMisesFisher_Proxy_Anchor':
         mrg = args.mrg, 
         alpha = args.alpha,
         concentration_init = args.concentration_init,
-        temperature = args.temperature,
-        learnable_temp = args.learnable_temp
+        temperature = args.temperature
     ).cuda()
 else:
     raise ValueError(f"Unsupported loss function: {args.loss}")
