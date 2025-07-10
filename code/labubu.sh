@@ -13,7 +13,7 @@ python train.py --gpu-id 0 \
                 --lr-decay-step 10 \
                 --concentration-init 10.0 \
                 --temperature 0.01 \
-                --learnable-temp 1
+                
                 
 ###################Cars####################
 python train.py --gpu-id 0 \
@@ -28,7 +28,7 @@ python train.py --gpu-id 0 \
                 --lr-decay-step 10 \
                 --concentration-init 10.0 \
                 --temperature 0.01 \
-                --learnable-temp 1
+                
 
 
 ###################SOP####################
@@ -45,7 +45,7 @@ python train.py --gpu-id 0 \
                 --lr-decay-step 10 \
                 --concentration-init 10.0 \
                 --temperature 0.01 \
-                --learnable-temp 1
+                
 
 
 ####VonMisesFisher_Proxy_Anchor-64####
@@ -63,7 +63,7 @@ python train.py --gpu-id 0 \
                 --lr-decay-step 10 \
                 --concentration-init 10.0 \
                 --temperature 0.01 \
-                --learnable-temp 1
+                
                 
 ###################Cars####################
 python train.py --gpu-id 0 \
@@ -78,7 +78,7 @@ python train.py --gpu-id 0 \
                 --lr-decay-step 10 \
                 --concentration-init 10.0 \
                 --temperature 0.01 \
-                --learnable-temp 1
+                
 
 
 ###################SOP####################
@@ -95,7 +95,7 @@ python train.py --gpu-id 0 \
                 --lr-decay-step 10 \
                 --concentration-init 10.0 \
                 --temperature 0.01 \
-                --learnable-temp 1
+                
 
 
 
