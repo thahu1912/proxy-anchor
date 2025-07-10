@@ -59,7 +59,7 @@ class Proxy_Anchor(torch.nn.Module):
 
 class Uncertainty_Aware_Proxy_Anchor(torch.nn.Module):
     """
-    Proxy Anchor with variance constraint from CBMLLoss
+    Proxy Anchor with variance constraints
     Incorporates the variance regularization to control the distribution of similarities
     """
     def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, variance_weight=0.1, hyper_weight=0.5):
@@ -106,18 +106,18 @@ class Uncertainty_Aware_Proxy_Anchor(torch.nn.Module):
         neg_term = torch.log(1 + N_sim_sum).sum() / self.nb_classes
         
         # Variance constraint 
-        pos_similarities = torch.where(P_one_hot == 1, cos, torch.zeros_like(cos))
-        neg_similarities = torch.where(N_one_hot == 1, cos, torch.zeros_like(cos))
+        pos_var = torch.where(P_one_hot == 1, cos, torch.zeros_like(cos))
+        neg_var = torch.where(N_one_hot == 1, cos, torch.zeros_like(cos))
         
     
-        pos_mean = torch.sum(pos_similarities, dim=1, keepdim=True) / (torch.sum(P_one_hot, dim=1, keepdim=True) + 1e-8)
-        neg_mean = torch.sum(neg_similarities, dim=1, keepdim=True) / (torch.sum(N_one_hot, dim=1, keepdim=True) + 1e-8)
+        pos_mean = torch.sum(pos_var, dim=1, keepdim=True) / (torch.sum(P_one_hot, dim=1, keepdim=True) + 1e-8)
+        neg_mean = torch.sum(neg_var, dim=1, keepdim=True) / (torch.sum(N_one_hot, dim=1, keepdim=True) + 1e-8)
         
         # Weighted mean across positive and negative similarities
         weighted_mean = self.hyper_weight * pos_mean + (1 - self.hyper_weight) * neg_mean
         
         # Variance constraint: penalize high variance in negative similarities
-        neg_variance = torch.mean(torch.pow(neg_similarities - weighted_mean, 2))
+        neg_variance = torch.mean(torch.pow(neg_var - weighted_mean, 2))
         
         # Combine Proxy Anchor loss with variance constraint
         proxy_loss = pos_term + neg_term
