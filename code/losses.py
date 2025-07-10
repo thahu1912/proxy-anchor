@@ -134,14 +134,12 @@ class VonMisesFisher_Proxy_Anchor(torch.nn.Module):
                  temperature=0.01, learnable_temp=True):
         torch.nn.Module.__init__(self)
         
-        self.proxies = torch.nn.Linear(in_features=sz_embed, out_features=nb_classes, bias=False)
-        nn.init.xavier_normal_(self.proxies.weight, gain=1)
+        # Proxy parameters - similar to original Proxy Anchor
+        self.proxies = torch.nn.Parameter(torch.randn(nb_classes, sz_embed).cuda())
+        nn.init.kaiming_normal_(self.proxies, mode='fan_out')
 
-        self.proxies = nn.utils.weight_norm(self.proxies, dim=0, name='weight')
-
-        # Concentration parameter
-        self.kappa = torch.nn.Linear(in_features=sz_embed, out_features=nb_classes, bias=False)
-        nn.init.constant_(self.kappa.weight, concentration_init)
+        # Concentration parameters for von Mises-Fisher
+        self.kappa = torch.nn.Parameter(torch.ones(nb_classes) * concentration_init)
 
         if learnable_temp:
             self.temperature = torch.nn.Parameter(torch.tensor(temperature))
@@ -170,7 +168,10 @@ class VonMisesFisher_Proxy_Anchor(torch.nn.Module):
             kappa2: proxy concentrations (nb_classes,)
         """
         if temperature is None:
-            temperature = self.temperature if isinstance(self.temperature, float) else self.temperature.item()
+            if isinstance(self.temperature, (float, int)):
+                temperature = float(self.temperature)
+            else:
+                temperature = self.temperature.item()
 
         mu1_norm = F.normalize(mu1, dim=1)  # (batch_size, sz_embed)
         mu2_norm = F.normalize(mu2, dim=1)  # (nb_classes, sz_embed)
@@ -190,13 +191,13 @@ class VonMisesFisher_Proxy_Anchor(torch.nn.Module):
         return log_likelihood
 
     def forward(self, X, T):
-        P = self.proxies(X)
+        P = self.proxies
 
         X_directions = F.normalize(X, dim=1)  # (batch_size, sz_embed)
         X_magnitudes = torch.norm(X, dim=1)   # (batch_size,)
         
-        P_directions = F.normalize(P.weight_v.t(), dim=1)  # (nb_classes, sz_embed)
-        P_concentrations = torch.clamp(self.kappa.weight.squeeze(), min=0.1)  # (nb_classes,)
+        P_directions = F.normalize(P, dim=1)  # (nb_classes, sz_embed)
+        P_concentrations = torch.clamp(self.kappa, min=0.1)  # (nb_classes,)
 
         vmf_similarities = self.vmf_log_likelihood(
             mu1=X_directions, 
