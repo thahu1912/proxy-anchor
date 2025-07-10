@@ -130,8 +130,7 @@ class VonMisesFisher_Proxy_Anchor(torch.nn.Module):
     Proxy Anchor with von Mises-Fisher distributions
     Replaces cosine similarity with vMF log-likelihoods
     """
-    def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, concentration_init=10.0, 
-                 temperature=0.01, learnable_temp=True):
+    def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, concentration_init=1.0, temperature=0.02):
         torch.nn.Module.__init__(self)
         
         # Proxy parameters - similar to original Proxy Anchor
@@ -141,10 +140,7 @@ class VonMisesFisher_Proxy_Anchor(torch.nn.Module):
         # Concentration parameters for von Mises-Fisher
         self.kappa = torch.nn.Parameter(torch.ones(nb_classes) * concentration_init)
 
-        if learnable_temp:
-            self.temperature = torch.nn.Parameter(torch.tensor(temperature))
-        else:
-            self.temperature = temperature
+        self.temperature = temperature
         
         self.nb_classes = nb_classes
         self.sz_embed = sz_embed
