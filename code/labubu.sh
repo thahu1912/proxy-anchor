@@ -11,8 +11,8 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 10 \
-                --concentration-init 10.0 \
-                --temperature 0.01 \
+                --concentration-init 1.0 \
+                --temperature 0.1 \
                 
                 
 ###################Cars####################
@@ -26,8 +26,8 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 10 \
-                --concentration-init 10.0 \
-                --temperature 0.01 \
+                --concentration-init 1.0 \
+                --temperature 0.1 \
                 
 
 
@@ -43,7 +43,7 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 10 \
-                --concentration-init 10.0 \
+                --concentration-init 1.0 \
                 --temperature 0.01 \
                 
 
@@ -61,7 +61,7 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 10 \
-                --concentration-init 10.0 \
+                --concentration-init 1.0 \
                 --temperature 0.01 \
                 
                 
@@ -76,7 +76,7 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 10 \
-                --concentration-init 10.0 \
+                --concentration-init 1.0 \
                 --temperature 0.01 \
                 
 
@@ -93,7 +93,7 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 10 \
-                --concentration-init 10.0 \
+                --concentration-init 1.0 \
                 --temperature 0.01 \
                 
 
