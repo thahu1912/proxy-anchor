@@ -120,16 +120,115 @@ class Uncertainty_Aware_Proxy_Anchor(torch.nn.Module):
         neg_variance = torch.mean(torch.pow(neg_var - weighted_mean, 2))
         
         # Combine Proxy Anchor loss with variance constraint
-        proxy_loss = pos_term + neg_term
-        variance_reg = self.variance_weight * neg_variance
-        
-        loss = proxy_loss + variance_reg
+        loss = pos_term + neg_term + self.variance_weight * neg_variance
         
         return loss
 
 
+class VonMisesFisher_Proxy_Anchor(torch.nn.Module):
+    """
+    Proxy Anchor with von Mises-Fisher distributions
+    Replaces cosine similarity with vMF log-likelihoods
+    """
+    def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, concentration_init=10.0, 
+                 temperature=0.01, learnable_temp=True):
+        torch.nn.Module.__init__(self)
+        
+        self.proxies = torch.nn.Linear(in_features=sz_embed, out_features=nb_classes, bias=False)
+        nn.init.xavier_normal_(self.proxies.weight, gain=1)
 
+        self.proxies = nn.utils.weight_norm(self.proxies, dim=0, name='weight')
+
+        # Concentration parameter
+        self.kappa = torch.nn.Linear(in_features=sz_embed, out_features=nb_classes, bias=False)
+        nn.init.constant_(self.kappa.weight, concentration_init)
+
+        if learnable_temp:
+            self.temperature = torch.nn.Parameter(torch.tensor(temperature))
+        else:
+            self.temperature = temperature
+        
+        self.nb_classes = nb_classes
+        self.sz_embed = sz_embed
+        self.mrg = mrg
+        self.alpha = alpha
+        
+    def approx_log_cp(self, norm_kappa):
+        """
+        Approximate log normalization constant for von Mises-Fisher distribution
+        """
+        return torch.log(norm_kappa + 1e-8)
     
+    def vmf_log_likelihood(self, mu1, kappa1, mu2, kappa2, temperature=None):
+        """
+        Compute von Mises-Fisher log-likelihood between embeddings and proxies
+        
+        Args:
+            mu1: embedding directions (batch_size, sz_embed)
+            kappa1: embedding magnitudes (batch_size,)
+            mu2: proxy directions (nb_classes, sz_embed)
+            kappa2: proxy concentrations (nb_classes,)
+        """
+        if temperature is None:
+            temperature = self.temperature if isinstance(self.temperature, float) else self.temperature.item()
+
+        mu1_norm = F.normalize(mu1, dim=1)  # (batch_size, sz_embed)
+        mu2_norm = F.normalize(mu2, dim=1)  # (nb_classes, sz_embed)
+
+        cos_sim = F.linear(mu1_norm, mu2_norm)  # (batch_size, nb_classes)
+
+        # von Mises-Fisher log-likelihood: κ * μ^T * x + log C(κ)
+        log_likelihood = kappa2.unsqueeze(0) * cos_sim  # (batch_size, nb_classes)
+
+        # Add normalization constant
+        norm_const = self.approx_log_cp(kappa2)  # (nb_classes,)
+        log_likelihood += norm_const.unsqueeze(0)  # (batch_size, nb_classes)
+        
+        # Apply temperature scaling
+        log_likelihood = log_likelihood / temperature
+        
+        return log_likelihood
+
+    def forward(self, X, T):
+        P = self.proxies(X)
+
+        X_directions = F.normalize(X, dim=1)  # (batch_size, sz_embed)
+        X_magnitudes = torch.norm(X, dim=1)   # (batch_size,)
+        
+        P_directions = F.normalize(P.weight_v.t(), dim=1)  # (nb_classes, sz_embed)
+        P_concentrations = torch.clamp(self.kappa.weight.squeeze(), min=0.1)  # (nb_classes,)
+
+        vmf_similarities = self.vmf_log_likelihood(
+            mu1=X_directions, 
+            kappa1=X_magnitudes, 
+            mu2=P_directions, 
+            kappa2=P_concentrations, 
+        )
+        
+        P_one_hot = binarize(T=T, nb_classes=self.nb_classes)
+        N_one_hot = 1 - P_one_hot
+    
+        # Apply margin to vMF similarities 
+        pos_exp = torch.exp(-self.alpha * (vmf_similarities - self.mrg))
+        neg_exp = torch.exp(self.alpha * (vmf_similarities + self.mrg))
+
+        # Find valid proxies
+        with_pos_proxies = torch.nonzero(P_one_hot.sum(dim=0) != 0).squeeze(dim=1)
+        num_valid_proxies = len(with_pos_proxies) if len(with_pos_proxies) > 0 else 1
+        
+        # Calculate similarity sums
+        P_sim_sum = torch.where(P_one_hot == 1, pos_exp, torch.zeros_like(pos_exp)).sum(dim=0) 
+        N_sim_sum = torch.where(N_one_hot == 1, neg_exp, torch.zeros_like(neg_exp)).sum(dim=0)
+        
+    
+        pos_term = torch.log(1 + P_sim_sum).sum() / num_valid_proxies
+        neg_term = torch.log(1 + N_sim_sum).sum() / self.nb_classes
+        
+        loss = pos_term + neg_term
+        
+        return loss
+
+
 # We use PyTorch Metric Learning library for the following codes.
 # Please refer to "https://github.com/KevinMusgrave/pytorch-metric-learning" for details.
 class Proxy_NCA(torch.nn.Module):

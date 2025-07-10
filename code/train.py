@@ -101,6 +101,12 @@ parser.add_argument('--variance-weight', default = 0.1, type = float,
 parser.add_argument('--hyper-weight', default = 0.5, type = float,
     help = 'Hyper weight for Proxy Anchor with Variance Constraint'
 )
+parser.add_argument('--concentration-init', default = 10.0, type = float,
+    help = 'Concentration initialization for VonMisesFisher_Proxy_Anchor'
+)
+parser.add_argument('--temperature', default = 0.01, type = float,
+    help = 'Temperature for VonMisesFisher_Proxy_Anchor'
+)
 args = parser.parse_args()
 
 if args.gpu_id != -1:
@@ -110,7 +116,7 @@ if args.gpu_id != -1:
 LOG_DIR = args.LOG_DIR + '/logs_{}/{}_{}_embedding{}_alpha{}_mrg{}_{}_lr{}_batch{}{}'.format(args.dataset, args.model, args.loss, args.sz_embedding, args.alpha, 
                                                                                             args.mrg, args.optimizer, args.lr, args.sz_batch, args.remark)
 # Wandb Initialization
-wandb.init(project=args.dataset + '_ProxyAnchor', notes=LOG_DIR, name=args.loss + '_' + args.model)
+wandb.init(project=args.dataset + str(args.sz_embedding), notes=LOG_DIR, name=args.loss + '_' + args.model)
 wandb.config.update(args)
 
 os.chdir('../data/')
@@ -252,6 +258,16 @@ elif args.loss == 'Uncertainty_Aware_Proxy_Anchor':
         variance_weight = args.variance_weight,
         hyper_weight = args.hyper_weight
     ).cuda()
+elif args.loss == 'VonMisesFisher_Proxy_Anchor':
+    criterion = losses.VonMisesFisher_Proxy_Anchor(
+        nb_classes = nb_classes, 
+        sz_embed = args.sz_embedding, 
+        mrg = args.mrg, 
+        alpha = args.alpha,
+        concentration_init = args.concentration_init,
+        temperature = args.temperature,
+        learnable_temp = args.learnable_temp
+    ).cuda()
 else:
     raise ValueError(f"Unsupported loss function: {args.loss}")
 
@@ -261,7 +277,7 @@ param_groups = [
                  list(set(model.module.parameters()).difference(set(model.module.model.embedding.parameters())))},
     {'params': model.model.embedding.parameters() if args.gpu_id != -1 else model.module.model.embedding.parameters(), 'lr':float(args.lr) * 1},
 ]
-if args.loss in ['Proxy_Anchor', 'Uncertainty_Aware_Proxy_Anchor']:
+if args.loss in ['Proxy_Anchor', 'Uncertainty_Aware_Proxy_Anchor', 'VonMisesFisher_Proxy_Anchor']:
     param_groups.append({'params': criterion.parameters(), 'lr':float(args.lr) * 100})
 elif args.loss == 'Proxy_NCA':
     param_groups.append({'params': criterion.parameters(), 'lr':float(args.lr)})
@@ -319,7 +335,7 @@ for epoch in range(0, args.nb_epochs):
         loss.backward()
         
         torch.nn.utils.clip_grad_value_(model.parameters(), 10)
-        if args.loss in ['Proxy_Anchor', 'Uncertainty_Aware_Proxy_Anchor']:
+        if args.loss in ['Proxy_Anchor', 'Uncertainty_Aware_Proxy_Anchor', 'VonMisesFisher_Proxy_Anchor']:
             torch.nn.utils.clip_grad_value_(criterion.parameters(), 10)
 
         losses_per_epoch.append(loss.data.cpu().numpy())
