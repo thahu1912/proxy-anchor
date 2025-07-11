@@ -2,7 +2,7 @@ from .base import *
 
 class CUBirds(BaseDataset):
     def __init__(self, root, mode, transform = None):
-        self.root = root + '/CUB_200_2011'
+        self.root = root + '/cub200'
         self.mode = mode
         self.transform = transform
         if self.mode == 'train':
