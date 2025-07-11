@@ -1,18 +1,9 @@
 import numpy as np
-from sklearn import cluster
 import torch
 import logging
-import losses
+import code.loss.losses as losses
 import json
-from scipy.special import comb
-from sklearn.cluster import KMeans
-from sklearn.neighbors import NearestNeighbors
-from sklearn.metrics import normalized_mutual_info_score, adjusted_mutual_info_score
-
-from sklearn.decomposition import PCA
-import faiss
 from tqdm import tqdm
-from scipy.spatial.distance import squareform, pdist, cdist
 import torch.nn.functional as F
 import math
 
@@ -55,15 +46,7 @@ def predict_batchwise(model, dataloader):
                 # i = 2: sz_batch * indices
                 if i == 0:
                     # move images to device of model (approximate device)
-                    model_output = model(J.cuda())
-                    
-                    # Handle both single and multiple return values
-                    if isinstance(model_output, tuple):
-                        # Model returns multiple values (e.g., embeddings + uncertainty)
-                        J = model_output[0]  # Take only the embeddings
-                    else:
-                        # Model returns single value (embeddings only)
-                        J = model_output
+                    J = model(J.cuda())
 
                 for j in J:
                     A[i].append(j)
@@ -80,244 +63,110 @@ def proxy_init_calc(model, dataloader):
 
     return proxy_mean
 
-def f1_score(query_labels, cluster_labels):
-    # compute tp_plus_fp
-    qlabels_set, qlabels_counts = np.unique(query_labels, return_counts=True)
-    tp_plut_fp = sum([comb(item, 2) for item in qlabels_counts if item > 1])
-
-    # compute tp
-    tp = sum([sum([comb(item, 2) for item in np.unique(cluster_labels[query_labels==query_label], return_counts=True)[1] if item > 1]) for query_label in qlabels_set])
-
-    # compute fp
-    fp = tp_plut_fp - tp
-
-    # compute fn
-    fn = sum([comb(item, 2) for item in np.unique(cluster_labels, return_counts=True)[1] if item > 1]) - tp
-
-    # compute F1
-    P, R = tp / (tp+fp), tp / (tp+fn)
-    F1 = 2*P*R / (P+R)
-    return F1
-
-def get_relevance_mask(shape, gt_labels, embeds_same_source, label_counts):
-    relevance_mask = np.zeros(shape=shape, dtype=int)
-    for k, v in label_counts.items():
-        matching_rows = np.where(gt_labels==k)[0]
-        max_column = v-1 if embeds_same_source else v
-        relevance_mask[matching_rows, :max_column] = 1
-    return relevance_mask
-
-def get_label_counts(ref_labels):
-    unique_labels, label_counts = np.unique(ref_labels, return_counts=True)
-    num_k = min(1023, int(np.max(label_counts)))
-    return {k:v for k, v in zip(unique_labels, label_counts)}, num_k
-
-def r_precision(knn_labels, gt_labels, embeds_same_source, label_counts):
-    relevance_mask = get_relevance_mask(knn_labels.shape, gt_labels, embeds_same_source, label_counts)
-    matches_per_row = np.sum((knn_labels == gt_labels) * relevance_mask.astype(bool), axis=1)
-    max_possible_matches_per_row = np.sum(relevance_mask, axis=1)
-    accuracy_per_sample = matches_per_row / max_possible_matches_per_row
-    return np.mean(accuracy_per_sample)
-
-def mean_average_precision_at_r(knn_labels, gt_labels, embeds_same_source, label_counts):
-    relevance_mask = get_relevance_mask(knn_labels.shape, gt_labels, embeds_same_source, label_counts)
-    num_samples, num_k = knn_labels.shape
-    equality = (knn_labels == gt_labels) * relevance_mask.astype(bool)
-    cumulative_correct = np.cumsum(equality, axis=1)
-    k_idx = np.tile(np.arange(1, num_k+1), (num_samples, 1))
-    precision_at_ks = (cumulative_correct * equality) / k_idx
-    summed_precision_pre_row = np.sum(precision_at_ks * relevance_mask, axis=1)
-    max_possible_matches_per_row = np.sum(relevance_mask, axis=1)
-    accuracy_per_sample = summed_precision_pre_row / max_possible_matches_per_row
-    return np.mean(accuracy_per_sample)
-
-def get_lone_query_labels(query_labels, ref_labels, ref_label_counts, embeds_same_source):
-    if embeds_same_source:
-        return np.array([k for k, v in ref_label_counts.items() if v <= 1])
-    else:
-        return np.setdiff1d(query_labels, ref_labels)
-
-def get_knn(ref_embeds, embeds, k, embeds_same_source=False, device_ids=None):
-    d = ref_embeds.shape[1]
-    if device_ids is not None:
-        index = faiss.IndexFlatL2(d)
-        index = utils.index_cpu_to_gpu_multiple(index, gpu_ids=device_ids)
-        index.add(ref_embeds)
-        distances, indices = index.search(embeds, k+1)
-        if embeds_same_source:
-            return indices[:, 1:], distances[:, 1:]
-        else:
-            return indices[:, :k], distances[:, :k]
-    else:
-        neigh = NearestNeighbors(n_neighbors=k)
-        neigh.fit(ref_embeds)
-        distances, indices = neigh.kneighbors(embeds, k + 1)
-        if embeds_same_source:
-            return indices[:, 1:], distances[:, 1:]
-        else:
-            return indices[:, :k], distances[:, :k]
-
-def run_kmeans(x, num_clusters, device_ids=None):
-    _, d = x.shape
-    if device_ids is not None:
-        # faiss implementation of k-means
-        clus = faiss.Clustering(d, num_clusters)
-        clus.niter = 20
-        clus.max_points_per_centroid = 10000000
-        index = faiss.IndexFlatL2(d)
-        index = utils.index_cpu_to_gpu_multiple(index, gpu_ids=device_ids)
-        # perform the training
-        clus.train(x, index)
-        _, idxs = index.search(x, 1)
-        return np.array([int(n[0]) for n in idxs], dtype=np.int64)
-    else:
-        # k-means
-        kmeans = KMeans(n_clusters=num_clusters, random_state=0).fit(x)
-        return kmeans.labels_ 
-
-def calculate_mean_average_precision_at_r(knn_labels, query_labels, not_lone_query_mask, embeds_same_source, label_counts):
-    if not any(not_lone_query_mask):
-        return 0
-    knn_labels, query_labels = knn_labels[not_lone_query_mask], query_labels[not_lone_query_mask]
-    return mean_average_precision_at_r(knn_labels, query_labels[:, None], embeds_same_source, label_counts)
-    
-def calculate_r_precision(knn_labels, query_labels, not_lone_query_mask, embeds_same_source, label_counts):
-    if not any(not_lone_query_mask):
-        return 0
-    knn_labels, query_labels = knn_labels[not_lone_query_mask], query_labels[not_lone_query_mask]
-    return r_precision(knn_labels, query_labels[:, None], embeds_same_source, label_counts)
-
-def recall_at_k(knn_labels, gt_labels, k):
-    accuracy_per_sample = np.array([float(gt_label in recalled_predictions[:k]) for gt_label, recalled_predictions in zip(gt_labels, knn_labels)])
-    return np.mean(accuracy_per_sample)
-
 def evaluate_cos(model, dataloader):
-    torch.cuda.empty_cache()
+    nb_classes = dataloader.dataset.nb_classes()
 
-    _ = model.eval()
-    n_classes = dataloader.dataset.nb_classes()
+    # calculate embeddings with model and get targets
+    X, T = predict_batchwise(model, dataloader)
+    X = l2_norm(X)
 
-    with torch.no_grad():
-        ### For all test images, extract features
-        X, T = predict_batchwise(model, dataloader)
-        X = l2_norm(X)
-        target_labels = T.cpu().detach().numpy()
-        feature_coll = X.cpu().detach().numpy()
-        feature_coll = feature_coll.astype('float32')
+    # get predictions by assigning nearest 8 neighbors with cosine
+    K = 32
+    Y = []
+    xs = []
+    
+    cos_sim = F.linear(X, X)
+    # Ensure T is on the same device as cos_sim
+    T_device = T.to(cos_sim.device)
+    Y = T_device[cos_sim.topk(1 + K)[1][:,1:]]
+    Y = Y.float().cpu()
+    
+    recall = []
+    for k in [1, 2, 4, 8, 16, 32]:
+        r_at_k = calc_recall_at_k(T, Y, k)
+        recall.append(r_at_k)
+        print("R@{} : {:.3f}".format(k, 100 * r_at_k))
 
-        torch.cuda.empty_cache()
-        label_counts, num_k = get_label_counts(target_labels)
-        knn_indices, knn_distances = get_knn(feature_coll, feature_coll, num_k, True, None)
-        knn_labels = target_labels[knn_indices]
-        lone_query_labels = get_lone_query_labels(target_labels, target_labels, label_counts, True)
-        not_lone_query_mask = ~np.isin(target_labels, lone_query_labels)
-
-        cluster_labels = run_kmeans(feature_coll, n_classes, None)
-        NMI = normalized_mutual_info_score(target_labels, cluster_labels)
-        F1 = f1_score(target_labels, cluster_labels)
-        MAP = calculate_mean_average_precision_at_r(knn_labels, target_labels, not_lone_query_mask, True, label_counts)
-        RP = calculate_r_precision(knn_labels, target_labels, not_lone_query_mask, True, label_counts)
-        recall_all_k = []
-        for k in [1,2,4,8]:
-            recall = recall_at_k(knn_labels, target_labels, k)
-            recall_all_k.append(recall)
-        
-        print('F1:',F1)
-        print('NMI:',NMI)
-        print('recall@1:',recall_all_k[0])
-        print('recall@2:',recall_all_k[1])
-        print('recall@4:',recall_all_k[2])
-        print('recall@8:',recall_all_k[3])
-        print('MAP@R:',MAP)
-        print('RP:',RP)
-
-    return recall_all_k, [F1, NMI, MAP, RP]  # Return recalls and other metrics as precisions
-
-def evaluate_cos_SOP(model, dataloader):
-    torch.cuda.empty_cache()
-
-    _ = model.eval()
-    n_classes = dataloader.dataset.nb_classes()
-
-    with torch.no_grad():
-        ### For all test images, extract features
-        X, T = predict_batchwise(model, dataloader)
-        X = l2_norm(X)
-        target_labels = T.cpu().detach().numpy()
-        feature_coll = X.cpu().detach().numpy()
-        feature_coll = feature_coll.astype('float32')
-
-        torch.cuda.empty_cache()
-        label_counts, num_k = get_label_counts(target_labels)
-        knn_indices, knn_distances = get_knn(feature_coll, feature_coll, num_k, True, None)
-        knn_labels = target_labels[knn_indices]
-        lone_query_labels = get_lone_query_labels(target_labels, target_labels, label_counts, True)
-        not_lone_query_mask = ~np.isin(target_labels, lone_query_labels)
-
-        cluster_labels = run_kmeans(feature_coll, n_classes, None)
-        NMI = normalized_mutual_info_score(target_labels, cluster_labels)
-        F1 = f1_score(target_labels, cluster_labels)
-        MAP = calculate_mean_average_precision_at_r(knn_labels, target_labels, not_lone_query_mask, True, label_counts)
-        RP = calculate_r_precision(knn_labels, target_labels, not_lone_query_mask, True, label_counts)
-        recall_all_k = []
-        for k in [1,10,100]:
-            recall = recall_at_k(knn_labels, target_labels, k)
-            recall_all_k.append(recall)
-        
-        print('F1:',F1)
-        print('NMI:',NMI)
-        print('recall@1:',recall_all_k[0])
-        print('recall@10:',recall_all_k[1])
-        print('recall@100:',recall_all_k[2])
-        print('MAP@R:',MAP)
-        print('RP:',RP)
-
-    return recall_all_k, [F1, NMI, MAP, RP]  # Return recalls and other metrics as precisions
+    return recall
 
 def evaluate_cos_Inshop(model, query_dataloader, gallery_dataloader):
-    """
-    Evaluate model on Inshop dataset with separate query and gallery dataloaders.
-    Returns Recalls and Precisions in the format expected by the training loop.
-    """
-    torch.cuda.empty_cache()
-    model.eval()
+    nb_classes = query_dataloader.dataset.nb_classes()
     
-    with torch.no_grad():
-        # Extract features from query and gallery
-        query_X, query_T = predict_batchwise(model, query_dataloader)
-        gallery_X, gallery_T = predict_batchwise(model, gallery_dataloader)
-        
-        query_X = l2_norm(query_X)
-        gallery_X = l2_norm(gallery_X)
-        
-        query_labels = query_T.cpu().detach().numpy()
-        gallery_labels = gallery_T.cpu().detach().numpy()
-        query_features = query_X.cpu().detach().numpy()
-        gallery_features = gallery_X.cpu().detach().numpy()
-        
-        # Calculate cosine similarities between query and gallery
-        similarities = np.dot(query_features, gallery_features.T)
-        
-        # Get top-k predictions for each query
-        k_values = [1, 10, 20, 30, 40, 50]
-        recalls = []
-        precisions = []
-        
-        for k in k_values:
-            top_k_indices = np.argsort(similarities, axis=1)[:, -k:]
-            top_k_labels = gallery_labels[top_k_indices]
-            
-            # Calculate recall@k
-            correct_predictions = (top_k_labels == query_labels[:, np.newaxis]).any(axis=1)
-            recall = np.mean(correct_predictions)
-            recalls.append(recall)
-            
-            # Calculate precision@k (for Inshop, precision is same as recall since we have one correct match per query)
-            precision = recall
-            precisions.append(precision)
-        
-        print('Inshop Evaluation Results:')
-        for i, k in enumerate(k_values):
-            print(f'Recall@{k}: {recalls[i]:.4f}, Precision@{k}: {precisions[i]:.4f}')
+    # calculate embeddings with model and get targets
+    query_X, query_T = predict_batchwise(model, query_dataloader)
+    gallery_X, gallery_T = predict_batchwise(model, gallery_dataloader)
     
-    return recalls, precisions
+    query_X = l2_norm(query_X)
+    gallery_X = l2_norm(gallery_X)
+    
+    # get predictions by assigning nearest 8 neighbors with cosine
+    K = 50
+    Y = []
+    xs = []
+    
+    cos_sim = F.linear(query_X, gallery_X)
+
+    def recall_k(cos_sim, query_T, gallery_T, k):
+        m = len(cos_sim)
+        match_counter = 0
+
+        for i in range(m):
+            pos_sim = cos_sim[i][gallery_T == query_T[i]]
+            neg_sim = cos_sim[i][gallery_T != query_T[i]]
+
+            thresh = torch.max(pos_sim).item()
+
+            if torch.sum(neg_sim > thresh) < k:
+                match_counter += 1
+            
+        return match_counter / m
+    
+    # calculate recall @ 1, 2, 4, 8
+    recall = []
+    for k in [1, 10, 20, 30, 40, 50]:
+        r_at_k = recall_k(cos_sim, query_T, gallery_T, k)
+        recall.append(r_at_k)
+        print("R@{} : {:.3f}".format(k, 100 * r_at_k))
+                
+    return recall
+
+def evaluate_cos_SOP(model, dataloader):
+    nb_classes = dataloader.dataset.nb_classes()
+    
+    # calculate embeddings with model and get targets
+    X, T = predict_batchwise(model, dataloader)
+    X = l2_norm(X)
+    
+    # get predictions by assigning nearest 8 neighbors with cosine
+    K = 1000
+    Y = []
+    xs = []
+    for x in X:
+        if len(xs)<10000:
+            xs.append(x)
+        else:
+            xs.append(x)            
+            xs = torch.stack(xs,dim=0)
+            cos_sim = F.linear(xs,X)
+            # Ensure T is on the same device as cos_sim
+            T_device = T.to(cos_sim.device)
+            y = T_device[cos_sim.topk(1 + K)[1][:,1:]]
+            Y.append(y.float().cpu())
+            xs = []
+            
+    # Last Loop
+    xs = torch.stack(xs,dim=0)
+    cos_sim = F.linear(xs,X)
+    # Ensure T is on the same device as cos_sim
+    T_device = T.to(cos_sim.device)
+    y = T_device[cos_sim.topk(1 + K)[1][:,1:]]
+    Y.append(y.float().cpu())
+    Y = torch.cat(Y, dim=0)
+
+    # calculate recall @ 1, 2, 4, 8
+    recall = []
+    for k in [1, 10, 100, 1000]:
+        r_at_k = calc_recall_at_k(T, Y, k)
+        recall.append(r_at_k)
+        print("R@{} : {:.3f}".format(k, 100 * r_at_k))
+    return recall
