@@ -11,8 +11,8 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 10 \
-                --concentration-init 0.5 \
-                --temperature 0.003 \
+                --concentration-init 1.0 \
+                --temperature 0.1 \
                 
                 
 ###################Cars####################
@@ -26,8 +26,8 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 10 \
-                --concentration-init 0.5 \
-                --temperature 0.003 \
+                --concentration-init 1.0 \
+                --temperature 0.1 \
                 
 
 
@@ -43,8 +43,8 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 10 \
-                --concentration-init 0.5 \
-                --temperature 0.003 \
+                --concentration-init 1.0 \
+                --temperature 0.1 \
                 
 
 
@@ -61,8 +61,8 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 10 \
-                --concentration-init 0.5 \
-                --temperature 0.003 \
+                --concentration-init 0.3 \
+                --temperature 0.5 \
                 
                 
 ###################Cars####################
@@ -76,8 +76,8 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 10 \
-                --concentration-init 0.5 \
-                --temperature 0.1 \
+                --concentration-init 0.3 \
+                --temperature 0.5 \
                 
 
 
@@ -93,8 +93,8 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 10 \
-                --concentration-init 0,5 \
-                --temperature 0.1 \
+                --concentration-init 0.3 \
+                --temperature 0.5 \
                 
 
 
