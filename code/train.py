@@ -354,34 +354,22 @@ for epoch in range(0, args.nb_epochs):
         with torch.no_grad():
             print("**Evaluating...**")
             if args.dataset == 'Inshop':
-                Recalls, Precisions = utils.evaluate_cos_Inshop(model, dl_query, dl_gallery)
+                Recalls = utils.evaluate_cos_Inshop(model, dl_query, dl_gallery)
             elif args.dataset != 'SOP':
-                Recalls, OtherMetrics = utils.evaluate_cos(model, dl_ev)
-                # For CUB dataset, we only have recalls, no separate precisions
-                Precisions = Recalls  # Use recalls as precisions for logging
+                Recalls = utils.evaluate_cos(model, dl_ev)
             else:
-                Recalls, OtherMetrics = utils.evaluate_cos_SOP(model, dl_ev)
-                # For SOP dataset, we only have recalls, no separate precisions
-                Precisions = Recalls  # Use recalls as precisions for logging
+                Recalls = utils.evaluate_cos_SOP(model, dl_ev)
                 
         # Logging Evaluation Score
         if args.dataset == 'Inshop':
             for i, K in enumerate([1,10,20,30,40,50]):    
                 wandb.log({"R@{}".format(K): Recalls[i]}, step=epoch)
-                wandb.log({"P@{}".format(K): Precisions[i]}, step=epoch)
         elif args.dataset != 'SOP':
-            k_values = [1, 2, 4, 8]
-            for i, K in enumerate(k_values):
-                if i < len(Recalls):
-                    wandb.log({"R@{}".format(K): Recalls[i]}, step=epoch)
-                    wandb.log({"P@{}".format(K): Precisions[i]}, step=epoch)
+            for i in range(6):
+                wandb.log({"R@{}".format(2**i): Recalls[i]}, step=epoch)
         else:
-            # For SOP dataset, the evaluation returns 3 values for k=[1,10,100]
-            k_values = [1, 10, 100]
-            for i, K in enumerate(k_values):
-                if i < len(Recalls):
-                    wandb.log({"R@{}".format(K): Recalls[i]}, step=epoch)
-                    wandb.log({"P@{}".format(K): Precisions[i]}, step=epoch)
+            for i in range(4):
+                wandb.log({"R@{}".format(10**i): Recalls[i]}, step=epoch)
         
         # Best model save
         if best_recall[0] < Recalls[0]:
@@ -396,16 +384,10 @@ for epoch in range(0, args.nb_epochs):
                     for i, K in enumerate([1,10,20,30,40,50]):    
                         f.write("Best Recall@{}: {:.4f}\n".format(K, best_recall[i] * 100))
                 elif args.dataset != 'SOP':
-                    # For CUB dataset, the evaluation returns 4 values for k=[1,2,4,8]
-                    k_values = [1, 2, 4, 8]
-                    for i, K in enumerate(k_values):
-                        if i < len(best_recall):
-                            f.write("Best Recall@{}: {:.4f}\n".format(K, best_recall[i] * 100))
+                    for i in range(6):
+                        f.write("Best Recall@{}: {:.4f}\n".format(2**i, best_recall[i] * 100))
                 else:
-                    # For SOP dataset, the evaluation returns 3 values for k=[1,10,100]
-                    k_values = [1, 10, 100]
-                    for i, K in enumerate(k_values):
-                        if i < len(best_recall):
-                            f.write("Best Recall@{}: {:.4f}\n".format(K, best_recall[i] * 100))
+                    for i in range(4):
+                        f.write("Best Recall@{}: {:.4f}\n".format(10**i, best_recall[i] * 100))
 
     
