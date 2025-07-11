@@ -4,7 +4,21 @@ import torch.nn.functional as F
 import math
 import random
 from pytorch_metric_learning import miners, losses
-from utils import approx_log_cp
+
+def approx_log_cp(norm_kappa, emb_dim=512):
+    """
+    Approximate log normalization constant for von Mises-Fisher distribution
+    log C_p(κ) ≈ a + b*κ + c*κ²
+    """
+    if emb_dim == 64:
+        est = 63 - 0.03818 * norm_kappa - 0.00671 * norm_kappa**2
+    elif emb_dim == 128:
+        est = 127 - 0.01909 * norm_kappa - 0.003355 * norm_kappa**2
+    elif emb_dim == 256:
+        est = 255 - 0.009545 * norm_kappa - 0.0016775 * norm_kappa**2
+    else:  # 512 and higher
+        est = 868 - 0.0002662 * norm_kappa - 0.0009685 * norm_kappa ** 2
+    return est
 
 def binarize(T, nb_classes):
     T = T.cpu().numpy()
@@ -172,7 +186,7 @@ class VonMisesFisher_Proxy_Anchor(torch.nn.Module):
         # von Mises-Fisher log-likelihood: κ * μ^T * x + log C(κ)
         log_likelihood = kappa2.unsqueeze(0) * cos_sim  # (batch_size, nb_classes)
 
-        # Add normalization constant using imported function
+        # Add normalization constant
         norm_const = approx_log_cp(kappa2, self.sz_embed)  # (nb_classes,)
         log_likelihood += norm_const.unsqueeze(0)  # (batch_size, nb_classes)
         
