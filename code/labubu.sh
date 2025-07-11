@@ -6,7 +6,7 @@ python train.py --gpu-id 0 \
                 --model bn_inception \
                 --embedding-size 512 \
                 --batch-size 180 \
-                --lr 1e-4 \
+                --lr 1e-5 \
                 --dataset cub \
                 --warm 1 \
                 --bn-freeze 1 \
