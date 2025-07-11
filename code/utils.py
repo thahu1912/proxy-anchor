@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import logging
-import code.loss.losses as losses
+import losses as losses
 import json
 from tqdm import tqdm
 import torch.nn.functional as F
