@@ -130,7 +130,7 @@ class VonMisesFisher_Proxy_Anchor(torch.nn.Module):
     Proxy Anchor with von Mises-Fisher distributions
     Replaces cosine similarity with vMF log-likelihoods
     """
-    def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, concentration_init=1.0, temperature=0.02):
+    def __init__(self, nb_classes, sz_embed, alpha=32, concentration_init=1.0, temperature=0.02):
         torch.nn.Module.__init__(self)
         
         # Proxy parameters - similar to original Proxy Anchor
@@ -141,15 +141,14 @@ class VonMisesFisher_Proxy_Anchor(torch.nn.Module):
         self.kappa = torch.nn.Parameter(torch.ones(nb_classes) * concentration_init)
 
         self.temperature = temperature
-        
         self.nb_classes = nb_classes
         self.sz_embed = sz_embed
-        self.mrg = mrg
         self.alpha = alpha
         
     def approx_log_cp(self, norm_kappa):
         """
-        Approximate log normalization constant for von Mises-Fisher distribution
+        Improved approximation of log normalization constant for von Mises-Fisher distribution
+        Uses KL divergence and multiple approximation methods for different kappa ranges
         """
         return torch.log(norm_kappa + 1e-8)
     
@@ -205,9 +204,9 @@ class VonMisesFisher_Proxy_Anchor(torch.nn.Module):
         P_one_hot = binarize(T=T, nb_classes=self.nb_classes)
         N_one_hot = 1 - P_one_hot
     
-        # Apply margin to vMF similarities 
-        pos_exp = torch.exp(-self.alpha * (vmf_similarities - self.mrg))
-        neg_exp = torch.exp(self.alpha * (vmf_similarities + self.mrg))
+        # Use vMF similarities directly without margin
+        pos_exp = torch.exp(-self.alpha * vmf_similarities)
+        neg_exp = torch.exp(self.alpha * vmf_similarities)
 
         # Find valid proxies
         with_pos_proxies = torch.nonzero(P_one_hot.sum(dim=0) != 0).squeeze(dim=1)

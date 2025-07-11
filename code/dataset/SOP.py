@@ -2,7 +2,7 @@ from .base import *
 
 class SOP(BaseDataset):
     def __init__(self, root, mode, transform = None):
-        self.root = root + '/online_products'
+        self.root = root + '/online_products/images'
         self.mode = mode
         self.transform = transform
         if self.mode == 'train':
