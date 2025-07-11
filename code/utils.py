@@ -172,48 +172,7 @@ def evaluate_cos_SOP(model, dataloader):
         print("R@{} : {:.3f}".format(k, 100 * r_at_k))
     return recall
 
-def approx_log_cp(norm_kappa, emb_dim=512):
-    """
-    Approximate log normalization constant for von Mises-Fisher distribution
-    log C_p(κ) ≈ a + b*κ + c*κ²
-    """
-    if emb_dim == 64:
-        est = 63 - 0.03818 * norm_kappa - 0.00671 * norm_kappa**2
-    elif emb_dim == 128:
-        est = 127 - 0.01909 * norm_kappa - 0.003355 * norm_kappa**2
-    elif emb_dim == 256:
-        est = 255 - 0.009545 * norm_kappa - 0.0016775 * norm_kappa**2
-    else:  # 512 and higher
-        est = 868 - 0.0002662 * norm_kappa - 0.0009685 * norm_kappa ** 2
-    return est
 
-def log_ppk_vmf(mu1, kappa1, mu2, kappa2, rho=0.5):
-    '''
-        computes the log of the Probability Product Kernel of order rho of two p-dimensional vMFs
-        given their normalized means and scales
-    '''
-    kappa3 = torch.linalg.norm(kappa1 * mu1 + kappa2 * mu2)
-    return rho * (approx_log_cp(kappa1, p) + approx_log_cp(kappa2, p)) - approx_log_cp(rho * kappa3, p)
-
-
-def log_ppk_vmf_vec(mu1, kappa1, mu2, kappa2, rho=0.5, temperature=0.02, n_samples=10):
-    # mu1: normalized vectors, kappa1: norms
-    # mu2: normalized vectors, kappa2: norms
-    if mu1.dim() == 1:
-        mu1 = mu1.unsqueeze(0)
-    if kappa1.dim() == 0:
-        kappa1 = kappa1.unsqueeze(0).unsqueeze(1)
-    if kappa2.dim() == 0:
-        kappa2.unsqueeze(0)
-    if kappa2.dim() == 1:
-        kappa2.unsqueeze(1)
-    mu1 = torch.nn.functional.normalize(mu1, dim=1)
-    mu2 = torch.nn.functional.normalize(mu2, dim=1)
-
-    # Draw samples (scales with batchsize, not proxysize).
-    distr = vmf.VonMisesFisher(loc=mu1, scale=kappa1)
-    # Sampling is the most time-consuming part.
-    samples = distr.rsample(torch.Size([n_samples]))
 
 
 
