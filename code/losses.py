@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import math
 import random
 from pytorch_metric_learning import miners, losses
+from utils import approx_log_cp
 
 def binarize(T, nb_classes):
     T = T.cpu().numpy()
@@ -147,12 +148,6 @@ class VonMisesFisher_Proxy_Anchor(torch.nn.Module):
         self.mrg = mrg
         self.alpha = alpha
         
-    def approx_log_cp(self, norm_kappa):
-        """
-        Approximate log normalization constant for von Mises-Fisher distribution
-        """
-        return torch.log(norm_kappa + 1e-8)
-    
     def vmf_log_likelihood(self, mu1, kappa1, mu2, kappa2, temperature=None):
         """
         Compute von Mises-Fisher log-likelihood between embeddings and proxies
@@ -177,8 +172,8 @@ class VonMisesFisher_Proxy_Anchor(torch.nn.Module):
         # von Mises-Fisher log-likelihood: κ * μ^T * x + log C(κ)
         log_likelihood = kappa2.unsqueeze(0) * cos_sim  # (batch_size, nb_classes)
 
-        # Add normalization constant
-        norm_const = self.approx_log_cp(kappa2)  # (nb_classes,)
+        # Add normalization constant using imported function
+        norm_const = approx_log_cp(kappa2, self.sz_embed)  # (nb_classes,)
         log_likelihood += norm_const.unsqueeze(0)  # (batch_size, nb_classes)
         
         # Apply temperature scaling
