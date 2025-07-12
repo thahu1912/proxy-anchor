@@ -24,4 +24,4 @@ class SOP(BaseDataset):
                 if int(class_id)-1 in self.classes:
                     self.ys += [int(class_id)-1]
                     self.I += [int(image_id)-1]
-                        self.im_paths.append(os.path.join(self.root, 'images', path))
+                    self.im_paths.append(os.path.join(self.root, 'images', path))
