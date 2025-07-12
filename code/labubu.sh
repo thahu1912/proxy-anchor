@@ -25,7 +25,7 @@ python train.py --gpu-id 0 \
                 --dataset cars \
                 --warm 1 \
                 --bn-freeze 1 \
-                --lr-decay-step 10 \
+                --lr-decay-step 20 \
                 --concentration-init 1.0 \
                 --temperature 0.1 \
                 
@@ -38,13 +38,14 @@ python train.py --gpu-id 0 \
                 --model bn_inception \
                 --embedding-size 512 \
                 --batch-size 180 \
-                --lr 1e-4 \
+                --lr 6e-4 \
                 --dataset SOP \
                 --warm 1 \
                 --bn-freeze 1 \
-                --lr-decay-step 10 \
-                --concentration-init 1.0 \
-                --temperature 0.1 \
+                --lr-decay-step 20 \
+                --concentration-init 0.8 \
+                --lr-decay-gamma 0.25\
+                --temperature 0.5 \
                 
 
 
@@ -61,7 +62,7 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 10 \
-                --concentration-init 0.3 \
+                --concentration-init 0.8 \
                 --temperature 0.5 \
                 
                 
@@ -75,8 +76,8 @@ python train.py --gpu-id 0 \
                 --dataset cars \
                 --warm 1 \
                 --bn-freeze 1 \
-                --lr-decay-step 10 \
-                --concentration-init 0.3 \
+                --lr-decay-step 20 \
+                --concentration-init 0.8 \
                 --temperature 0.5 \
                 
 
@@ -88,12 +89,13 @@ python train.py --gpu-id 0 \
                 --model bn_inception \
                 --embedding-size 64 \
                 --batch-size 180 \
-                --lr 1e-4 \
+                --lr 6e-4 \
                 --dataset SOP \
                 --warm 1 \
                 --bn-freeze 1 \
-                --lr-decay-step 10 \
-                --concentration-init 0.3 \
+                --lr-decay-step 20 \
+                --concentration-init 0.8 \
+                --lr-decay-gamma 0.25\
                 --temperature 0.5 \
                 
 
