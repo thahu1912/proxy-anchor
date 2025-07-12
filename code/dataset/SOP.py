@@ -19,9 +19,9 @@ class SOP(BaseDataset):
         BaseDataset.__init__(self, self.root, self.mode, self.transform)
         metadata_path = os.path.join(self.root, 'Info_Files', info_file)
         with open(metadata_path) as metadata:
-        for i, (image_id, class_id, _, path) in enumerate(map(str.split, metadata)):
-            if i > 0:
-                if int(class_id)-1 in self.classes:
-                    self.ys += [int(class_id)-1]
-                    self.I += [int(image_id)-1]
-                    self.im_paths.append(os.path.join(self.root, 'images', path))
+            for i, (image_id, class_id, _, path) in enumerate(map(str.split, metadata)):
+                if i > 0:
+                    if int(class_id) - 1 in self.classes:
+                        self.ys += [int(class_id) - 1]
+                        self.I += [int(image_id) - 1]
+                        self.im_paths.append(os.path.join(self.root, 'images', path))
