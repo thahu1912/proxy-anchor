@@ -11,8 +11,8 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 10 \
-                --variance-weight 0.1 \
-                --hyper-weight 0.5
+                --variance-weight 0.05 \
+                --hyper-weight 0.3
 
 
 
@@ -26,8 +26,8 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 20 \
-                --variance-weight 0.1 \
-                --hyper-weight 0.5 
+                --variance-weight 0.05 \
+                --hyper-weight 0.3
 
 
 python train.py --gpu-id 0 \
@@ -41,8 +41,8 @@ python train.py --gpu-id 0 \
                 --bn-freeze 1 \
                 --lr-decay-step 20 \
                 --lr-decay-gamma 0.25 \
-                --variance-weight 0.1 \
-                --hyper-weight 0.5 
+                --variance-weight 0.15 \
+                --hyper-weight 0.7
 
 
 ####Uncertainty_Aware_Proxy_Anchor-64####
@@ -58,8 +58,8 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 10 \
-                --variance-weight 0.1 \
-                --hyper-weight 0.5 
+                --variance-weight 0.05 \
+                --hyper-weight 0.3
 
 
 
@@ -73,8 +73,8 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 20 \
-                --variance-weight 0.1 \
-                --hyper-weight 0.5 
+                --variance-weight 0.05 \
+                --hyper-weight 0.3
 
 
 python train.py --gpu-id 0 \
@@ -88,8 +88,8 @@ python train.py --gpu-id 0 \
                 --bn-freeze 1 \
                 --lr-decay-step 20 \
                 --lr-decay-gamma 0.25 \
-                --variance-weight 0.1 \
-                --hyper-weight 0.5 
+                --variance-weight 0.15 \
+                --hyper-weight 0.7
 
 
 

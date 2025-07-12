@@ -59,7 +59,7 @@ class Proxy_Anchor(torch.nn.Module):
 
 class Uncertainty_Aware_Proxy_Anchor(torch.nn.Module):
     """
-    Proxy Anchor with variance constraints
+    Proxy Anchor with variance constraints and intra-class spread encouragement
     Incorporates the variance regularization to control the distribution of similarities
     """
     def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, variance_weight=0.1, hyper_weight=0.2):
@@ -119,8 +119,13 @@ class Uncertainty_Aware_Proxy_Anchor(torch.nn.Module):
         # Variance constraint: penalize high variance in negative similarities
         neg_variance = torch.mean(torch.pow(neg_var - weighted_mean, 2))
         
-        # Combine Proxy Anchor loss with variance constraint
-        loss = pos_term + neg_term + self.variance_weight * neg_variance
+        # Intra-class spread encouragement: encourage variance in positive similarities
+        pos_similarities = torch.where(P_one_hot == 1, cos, torch.zeros_like(cos))
+        pos_mean_per_sample = torch.sum(pos_similarities, dim=1, keepdim=True) / (torch.sum(P_one_hot, dim=1, keepdim=True) + 1e-8)
+        intra_class_variance = torch.mean((pos_similarities - pos_mean_per_sample) ** 2)
+        
+        # Combine Proxy Anchor loss with variance constraint and intra-class spread
+        loss = pos_term + neg_term + self.variance_weight * neg_variance - 0.1 * intra_class_variance
         
         return loss
 
