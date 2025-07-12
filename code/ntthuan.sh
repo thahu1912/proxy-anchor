@@ -11,8 +11,8 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 10 \
-                --variance-weight 0.1 \
-                --hyper-weight 0.2 \
+                --variance-weight 0.2 \
+                --hyper-weight 0.5 
 
 
 
@@ -25,9 +25,9 @@ python train.py --gpu-id 0 \
                 --dataset cars \
                 --warm 1 \
                 --bn-freeze 1 \
-                --lr-decay-step 10 \
-                --variance-weight 0.1 \
-                --hyper-weight 0.2
+                --lr-decay-step 20 \
+                --variance-weight 0.2 \
+                --hyper-weight 0.5 
 
 
 python train.py --gpu-id 0 \
@@ -35,13 +35,13 @@ python train.py --gpu-id 0 \
                 --model bn_inception \
                 --embedding-size 512 \
                 --batch-size 180 \
-                --lr 1e-4 \
+                --lr 6e-4 \
                 --dataset SOP \
                 --warm 1 \
                 --bn-freeze 1 \
-                --lr-decay-step 10 \
-                --variance-weight 0.1 \
-                --hyper-weight 0.2
+                --lr-decay-step 20 \
+                --variance-weight 0.2 \
+                --hyper-weight 0.5 
 
 
 ####Uncertainty_Aware_Proxy_Anchor-64####
@@ -57,8 +57,8 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 10 \
-                --variance-weight 0.1 \
-                --hyper-weight 0.2 \
+                --variance-weight 0.2 \
+                --hyper-weight 0.5 \
 
 
 
@@ -71,9 +71,9 @@ python train.py --gpu-id 0 \
                 --dataset cars \
                 --warm 1 \
                 --bn-freeze 1 \
-                --lr-decay-step 10 \
-                --variance-weight 0.1 \
-                --hyper-weight 0.2
+                --lr-decay-step 20 \
+                --variance-weight 0.2 \
+                --hyper-weight 0.5 
 
 
 python train.py --gpu-id 0 \
@@ -81,13 +81,13 @@ python train.py --gpu-id 0 \
                 --model bn_inception \
                 --embedding-size 64 \
                 --batch-size 180 \
-                --lr 1e-4 \
+                --lr 6e-4 \
                 --dataset SOP \
                 --warm 1 \
                 --bn-freeze 1 \
-                --lr-decay-step 10 \
-                --variance-weight 0.1 \
-                --hyper-weight 0.2
+                --lr-decay-step 20 \
+                --variance-weight 0.2 \
+                --hyper-weight 0.5 
 
 
 
