@@ -258,13 +258,14 @@ elif args.loss == 'Uncertainty_Aware_Proxy_Anchor':
         variance_weight = args.variance_weight,
         hyper_weight = args.hyper_weight
     ).cuda()
-elif args.loss == 'VonMisesFisher_Proxy_Anchor':
-    criterion = losses.VonMisesFisher_Proxy_Anchor(
+elif args.loss == 'Uncertainty_Aware_Proxy_Anchor_V2':
+    criterion = losses.Uncertainty_Aware_Proxy_Anchor_V2(
         nb_classes = nb_classes, 
         sz_embed = args.sz_embedding, 
+        mrg = args.mrg, 
         alpha = args.alpha,
-        concentration_init = args.concentration_init,
-        temperature = args.temperature
+        variance_weight = args.variance_weight,
+        hyper_weight = args.hyper_weight
     ).cuda()
 else:
     raise ValueError(f"Unsupported loss function: {args.loss}")
@@ -275,7 +276,7 @@ param_groups = [
                  list(set(model.module.parameters()).difference(set(model.module.model.embedding.parameters())))},
     {'params': model.model.embedding.parameters() if args.gpu_id != -1 else model.module.model.embedding.parameters(), 'lr':float(args.lr) * 1},
 ]
-if args.loss in ['Proxy_Anchor', 'Uncertainty_Aware_Proxy_Anchor', 'VonMisesFisher_Proxy_Anchor']:
+if args.loss in ['Proxy_Anchor', 'Uncertainty_Aware_Proxy_Anchor', 'Uncertainty_Aware_Proxy_Anchor_V2']:
     param_groups.append({'params': criterion.parameters(), 'lr':float(args.lr) * 100})
 elif args.loss == 'Proxy_NCA':
     param_groups.append({'params': criterion.parameters(), 'lr':float(args.lr)})
@@ -333,7 +334,7 @@ for epoch in range(0, args.nb_epochs):
         loss.backward()
         
         torch.nn.utils.clip_grad_value_(model.parameters(), 10)
-        if args.loss in ['Proxy_Anchor', 'Uncertainty_Aware_Proxy_Anchor', 'VonMisesFisher_Proxy_Anchor']:
+        if args.loss in ['Proxy_Anchor', 'Uncertainty_Aware_Proxy_Anchor', 'Uncertainty_Aware_Proxy_Anchor_V2']:
             torch.nn.utils.clip_grad_value_(criterion.parameters(), 10)
 
         losses_per_epoch.append(loss.data.cpu().numpy())

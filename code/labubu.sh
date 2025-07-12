@@ -1,8 +1,8 @@
-####VonMisesFisher_Proxy_Anchor-512####
+####Uncertainty_Aware_Proxy_Anchor_V2-512####
 
 ####################BN_Inception####################
 python train.py --gpu-id 0 \
-                --loss VonMisesFisher_Proxy_Anchor \
+                --loss Uncertainty_Aware_Proxy_Anchor_V2 \
                 --model bn_inception \
                 --embedding-size 512 \
                 --batch-size 180 \
@@ -11,13 +11,13 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 10 \
-                --concentration-init 1.0 \
-                --temperature 0.1 \
+                --variance-weight 0.1 \
+                --hyper-weight 0.2 \
                 
                 
 ###################Cars####################
 python train.py --gpu-id 0 \
-                --loss VonMisesFisher_Proxy_Anchor \
+                --loss Uncertainty_Aware_Proxy_Anchor_V2 \
                 --model bn_inception \
                 --embedding-size 512 \
                 --batch-size 180 \
@@ -26,15 +26,16 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 20 \
-                --concentration-init 1.0 \
-                --temperature 0.1 \
+                --lr-decay-gamma 0.25 \
+                --variance-weight 0.1 \
+                --hyper-weight 0.2 \
                 
 
 
 ###################SOP####################
 ####################BN_Inception####################
 python train.py --gpu-id 0 \
-                --loss VonMisesFisher_Proxy_Anchor \
+                --loss Uncertainty_Aware_Proxy_Anchor_V2 \
                 --model bn_inception \
                 --embedding-size 512 \
                 --batch-size 180 \
@@ -43,17 +44,17 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 20 \
-                --concentration-init 0.8 \
-                --lr-decay-gamma 0.25\
-                --temperature 0.5 \
+                --lr-decay-gamma 0.25 \
+                --variance-weight 0.1 \
+                --hyper-weight 0.2 \
                 
 
 
-####VonMisesFisher_Proxy_Anchor-64####
+####Uncertainty_Aware_Proxy_Anchor_V2-64####
 
 ####################BN_Inception####################
 python train.py --gpu-id 0 \
-                --loss VonMisesFisher_Proxy_Anchor \
+                --loss Uncertainty_Aware_Proxy_Anchor_V2 \
                 --model bn_inception \
                 --embedding-size 64 \
                 --batch-size 180 \
@@ -62,13 +63,13 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 10 \
-                --concentration-init 1 \
-                --temperature 0.5 \
+                --variance-weight 0.1 \
+                --hyper-weight 0.2 \
                 
                 
 ###################Cars####################
 python train.py --gpu-id 0 \
-                --loss VonMisesFisher_Proxy_Anchor \
+                --loss Uncertainty_Aware_Proxy_Anchor_V2 \
                 --model bn_inception \
                 --embedding-size 64 \
                 --batch-size 180 \
@@ -77,15 +78,15 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 20 \
-                --concentration-init 1 \
-                --temperature 0.5 \
+                --variance-weight 0.1 \
+                --hyper-weight 0.2 \
                 
 
 
 ###################SOP####################
 ####################BN_Inception####################
 python train.py --gpu-id 0 \
-                --loss VonMisesFisher_Proxy_Anchor \
+                --loss Uncertainty_Aware_Proxy_Anchor_V2 \
                 --model bn_inception \
                 --embedding-size 64 \
                 --batch-size 180 \
@@ -94,9 +95,9 @@ python train.py --gpu-id 0 \
                 --warm 1 \
                 --bn-freeze 1 \
                 --lr-decay-step 20 \
-                --concentration-init 1 \
                 --lr-decay-gamma 0.25\
-                --temperature 0.5 \
+                --variance-weight 0.1 \
+                --hyper-weight 0.2 \
                 
 
 

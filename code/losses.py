@@ -62,7 +62,7 @@ class Uncertainty_Aware_Proxy_Anchor(torch.nn.Module):
     Proxy Anchor with variance constraints
     Incorporates the variance regularization to control the distribution of similarities
     """
-    def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, variance_weight=0.1, hyper_weight=0.5):
+    def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, variance_weight=0.1, hyper_weight=0.2):
         torch.nn.Module.__init__(self)
         # Proxy Anchor Initialization
         self.proxies = torch.nn.Parameter(torch.randn(nb_classes, sz_embed).cuda())
@@ -125,103 +125,52 @@ class Uncertainty_Aware_Proxy_Anchor(torch.nn.Module):
         return loss
 
 
-class VonMisesFisher_Proxy_Anchor(torch.nn.Module):
+class Uncertainty_Aware_Proxy_Anchor_V2(torch.nn.Module):
     """
-    Proxy Anchor with von Mises-Fisher distributions
-    Replaces cosine similarity with vMF log-likelihoods
+    Proxy Anchor with variance constraints and hard negative mining (no extra hyperparams)
     """
-    def __init__(self, nb_classes, sz_embed, alpha=32, concentration_init=1.0, temperature=0.02):
+    def __init__(self, nb_classes, sz_embed, mrg=0.1, alpha=32, variance_weight=0.1, hyper_weight=0.5):
         torch.nn.Module.__init__(self)
-        
-        # Proxy parameters - similar to original Proxy Anchor
         self.proxies = torch.nn.Parameter(torch.randn(nb_classes, sz_embed).cuda())
         nn.init.kaiming_normal_(self.proxies, mode='fan_out')
-
-        # Concentration parameters for von Mises-Fisher
-        self.kappa = torch.nn.Parameter(torch.ones(nb_classes) * concentration_init)
-
-        self.temperature = temperature
         self.nb_classes = nb_classes
         self.sz_embed = sz_embed
+        self.mrg = mrg
         self.alpha = alpha
+        self.variance_weight = variance_weight
+        self.hyper_weight = hyper_weight
         
-    def approx_log_cp(self, norm_kappa):
-        """
-        Improved approximation of log normalization constant for von Mises-Fisher distribution
-        Uses KL divergence and multiple approximation methods for different kappa ranges
-        """
-        return torch.log(norm_kappa + 1e-8)
-    
-    def vmf_log_likelihood(self, mu1, kappa1, mu2, kappa2, temperature=None):
-        """
-        Compute von Mises-Fisher log-likelihood between embeddings and proxies
-        
-        Args:
-            mu1: embedding directions (batch_size, sz_embed)
-            kappa1: embedding magnitudes (batch_size,)
-            mu2: proxy directions (nb_classes, sz_embed)
-            kappa2: proxy concentrations (nb_classes,)
-        """
-        if temperature is None:
-            if isinstance(self.temperature, (float, int)):
-                temperature = float(self.temperature)
-            else:
-                temperature = self.temperature.item()
-
-        mu1_norm = F.normalize(mu1, dim=1)  # (batch_size, sz_embed)
-        mu2_norm = F.normalize(mu2, dim=1)  # (nb_classes, sz_embed)
-
-        cos_sim = F.linear(mu1_norm, mu2_norm)  # (batch_size, nb_classes)
-
-        # von Mises-Fisher log-likelihood: κ * μ^T * x + log C(κ)
-        log_likelihood = kappa2.unsqueeze(0) * cos_sim  # (batch_size, nb_classes)
-
-        # Add normalization constant
-        norm_const = self.approx_log_cp(kappa2)  # (nb_classes,)
-        log_likelihood += norm_const.unsqueeze(0)  # (batch_size, nb_classes)
-        
-        # Apply temperature scaling
-        log_likelihood = log_likelihood / temperature
-        
-        return log_likelihood
-
     def forward(self, X, T):
         P = self.proxies
-
-        X_directions = F.normalize(X, dim=1)  # (batch_size, sz_embed)
-        X_magnitudes = torch.norm(X, dim=1)   # (batch_size,)
-        
-        P_directions = F.normalize(P, dim=1)  # (nb_classes, sz_embed)
-        P_concentrations = torch.clamp(self.kappa, min=0.1)  # (nb_classes,)
-
-        vmf_similarities = self.vmf_log_likelihood(
-            mu1=X_directions, 
-            kappa1=X_magnitudes, 
-            mu2=P_directions, 
-            kappa2=P_concentrations, 
-        )
-        
+        X_norm = l2_norm(X)
+        P_norm = l2_norm(P)
+        cos = F.linear(X_norm, P_norm)
         P_one_hot = binarize(T=T, nb_classes=self.nb_classes)
         N_one_hot = 1 - P_one_hot
-    
-        # Use vMF similarities directly without margin
-        pos_exp = torch.exp(-self.alpha * vmf_similarities)
-        neg_exp = torch.exp(self.alpha * vmf_similarities)
 
-        # Find valid proxies
+        # Exponential terms
+        pos_exp = torch.exp(-self.alpha * (cos - self.mrg))
+        neg_exp = torch.exp(self.alpha * (cos + self.mrg))
+
         with_pos_proxies = torch.nonzero(P_one_hot.sum(dim=0) != 0).squeeze(dim=1)
         num_valid_proxies = len(with_pos_proxies) if len(with_pos_proxies) > 0 else 1
-        
-        # Calculate similarity sums
+
         P_sim_sum = torch.where(P_one_hot == 1, pos_exp, torch.zeros_like(pos_exp)).sum(dim=0) 
-        N_sim_sum = torch.where(N_one_hot == 1, neg_exp, torch.zeros_like(neg_exp)).sum(dim=0)
-        
-    
+        # Hard negative mining: use only the hardest negative for each sample
+        neg_masked = torch.where(N_one_hot == 1, cos, torch.full_like(cos, -float('inf')))
+        hardest_neg_sim, _ = torch.max(neg_masked, dim=1, keepdim=True)  # (batch_size, 1)
+        hardest_neg_exp = torch.exp(self.alpha * (hardest_neg_sim + self.mrg))
+        N_sim_sum = hardest_neg_exp.squeeze(1)  # (batch_size,)
+
         pos_term = torch.log(1 + P_sim_sum).sum() / num_valid_proxies
-        neg_term = torch.log(1 + N_sim_sum).sum() / self.nb_classes
-        
-        loss = pos_term + neg_term
-        
+        neg_term = torch.log(1 + N_sim_sum).mean()
+
+        # Variance constraint: only on hardest negatives
+        neg_var = hardest_neg_sim  # (batch_size, 1)
+        neg_mean = torch.mean(neg_var)
+        neg_variance = torch.mean((neg_var - neg_mean) ** 2)
+
+        loss = pos_term + neg_term + self.variance_weight * neg_variance
         return loss
 
 
