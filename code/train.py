@@ -158,7 +158,7 @@ else:
         shuffle = True,
         num_workers = args.nb_workers,
         drop_last = True,
-        pin_memory = False  # Disable pin_memory to avoid threading issues
+        pin_memory = True
     )
     print('Random Sampling')
 
@@ -177,7 +177,7 @@ if args.dataset != 'Inshop':
         batch_size = args.sz_batch,
         shuffle = False,
         num_workers = args.nb_workers,
-        pin_memory = False  # Disable pin_memory to avoid threading issues
+        pin_memory = True
     )
     
 else:
@@ -262,7 +262,6 @@ elif args.loss == 'VonMisesFisher_Proxy_Anchor':
     criterion = losses.VonMisesFisher_Proxy_Anchor(
         nb_classes = nb_classes, 
         sz_embed = args.sz_embedding, 
-        mrg = args.mrg, 
         alpha = args.alpha,
         concentration_init = args.concentration_init,
         temperature = args.temperature
