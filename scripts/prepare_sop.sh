@@ -1,0 +1,14 @@
+SOP_ROOT='data/online_products/'
+SOP_DATA='https://www.dropbox.com/scl/fi/7icj466ds04ex7rd7kxxs/online_products.tar?rlkey=c2tp644h3uzui38tpu3l8z2uq&e=1&dl=0'
+
+
+if [[ ! -d "${SOP_ROOT}" ]]; then
+    mkdir -p data/
+    pushd data/
+    echo "Downloading Stanford Online Products dataset..."
+    wget -O online_products.tar "${SOP_DATA}"
+    tar -xvf online_products.tar
+    mv Info_Files images
+    rm online_products.tar
+    popd
+fi
